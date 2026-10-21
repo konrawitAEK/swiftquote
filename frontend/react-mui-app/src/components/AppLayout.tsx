@@ -1,5 +1,5 @@
 import { AppBar, Box, Button, Chip, Container, Stack, Toolbar, Typography } from '@mui/material'
-import { Navigate, NavLink, Outlet, Link as RouterLink, useLocation } from 'react-router-dom'
+import { Navigate, NavLink, Outlet, Link as RouterLink } from 'react-router-dom'
 import type { Role } from '../api/client'
 import { useAuth } from '../auth/auth'
 import { homePath, ROLE_LABELS } from '../auth/roles'
@@ -20,12 +20,10 @@ const NAV: Record<Role, { to: string; label: string }[]> = {
 
 /** Shell for signed-in pages; redirects to /login without a session and home when the role may not open the page. */
 export function AppLayout({ roles }: { roles?: Role[] }) {
-  const { isAuthenticated, user, logout, loggedOut } = useAuth()
-  const location = useLocation()
+  const { isAuthenticated, user, logout } = useAuth()
 
   if (!isAuthenticated || !user) {
-    // Remember the page (a link opened while signed out, or an expired session), but not after "Log out".
-    return <Navigate to="/login" replace state={loggedOut ? undefined : { from: location.pathname }} />
+    return <Navigate to="/login" replace />
   }
   if (roles && !roles.includes(user.role)) {
     return <Navigate to={homePath(user.role)} replace />

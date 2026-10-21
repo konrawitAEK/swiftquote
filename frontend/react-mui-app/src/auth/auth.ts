@@ -9,8 +9,6 @@ export interface AuthState {
   /** Resolves to an error message, or null on success. */
   login: (email: string, password: string) => Promise<string | null>
   logout: () => void
-  /** True after "Log out" (not after the session expired), so the next sign-in starts on that user's home page. */
-  loggedOut: boolean
 }
 
 export const AuthContext = createContext<AuthState | null>(null)

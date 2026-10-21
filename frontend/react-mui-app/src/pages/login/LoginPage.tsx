@@ -1,6 +1,6 @@
 import { Alert, Box, Button, Card, CardContent, Chip, Stack, TextField, Typography } from '@mui/material'
 import { useState, type FormEvent } from 'react'
-import { Navigate, useLocation } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 import { useAuth } from '../../auth/auth'
 import { homePath } from '../../auth/roles'
 
@@ -13,21 +13,15 @@ const DEV_ACCOUNTS = [
   { label: 'Customer', email: 'buyer@acme.example' },
 ]
 
-const LANDING_PAGES = ['/', '/quotes', '/dashboard', '/admin']
-
 export function LoginPage() {
   const { isAuthenticated, user, login } = useAuth()
-  const from = (useLocation().state as { from?: string } | null)?.from
   const [email, setEmail] = useState('rm1@swiftquote.dev')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  // Return to a deep link (e.g. a quote opened from an email); landing pages always go to the role's home.
-  if (isAuthenticated && user) {
-    const deepLink = from && !LANDING_PAGES.includes(from) ? from : undefined
-    return <Navigate to={deepLink ?? homePath(user.role)} replace />
-  }
+  // Always start on the role's home page, never on the page that was open before.
+  if (isAuthenticated && user) return <Navigate to={homePath(user.role)} replace />
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
