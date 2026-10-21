@@ -1,12 +1,27 @@
 name: Backend Go
 on:
   push:
-    paths: ["backend/go-service/**", "contracts/fixtures/**", ".github/workflows/ci-backend-go.yml"]
+    paths: ["backend/go-service/**", "contracts/fixtures/**", "db/migrations/**", ".github/workflows/ci-backend-go.yml"]
   pull_request:
-    paths: ["backend/go-service/**", "contracts/fixtures/**", ".github/workflows/ci-backend-go.yml"]
+    paths: ["backend/go-service/**", "contracts/fixtures/**", "db/migrations/**", ".github/workflows/ci-backend-go.yml"]
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: swiftquote_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgres://postgres:password@localhost:5432/swiftquote_test?sslmode=disable
     defaults:
       run:
         working-directory: backend/go-service
@@ -16,6 +31,14 @@ jobs:
         with:
           go-version-file: backend/go-service/go.mod
           cache-dependency-path: backend/go-service/go.sum
+      - name: Apply migrations
+        working-directory: .
+        env:
+          PGPASSWORD: password
+        run: |
+          for f in $(ls db/migrations/V*.sql | sort -V); do
+            psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d swiftquote_test -f "$f"
+          done
       - run: go vet ./...
       - run: go test -race ./...
       - run: go build ./cmd/server

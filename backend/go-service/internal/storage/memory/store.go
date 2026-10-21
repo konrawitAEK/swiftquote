@@ -35,23 +35,26 @@ func NewStore() *Store {
 	}
 }
 
-func (s *Store) PutOrganization(o domain.Organization) {
+func (s *Store) PutOrganization(_ context.Context, o domain.Organization) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.orgs[o.ID] = o
+	return nil
 }
 
-func (s *Store) PutUser(u domain.User, m domain.Membership) {
+func (s *Store) PutUser(_ context.Context, u domain.User, m domain.Membership) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.users[u.ID] = u
 	s.memberships[u.ID] = m
+	return nil
 }
 
-func (s *Store) PutClient(c domain.Client) {
+func (s *Store) PutClient(_ context.Context, c domain.Client) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.clients[c.ID] = c
+	return nil
 }
 
 // FindLogin implements auth.Repository.

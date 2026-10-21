@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   # Shared Database
   postgres:
@@ -13,7 +11,13 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Applied only when the pgdata volume is first created; `make reset-db` to re-run.
       - ./db/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d swiftquote"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
     networks:
       - internal-net
 
@@ -33,8 +37,10 @@ services:
       DB_PASSWORD: password
       DB_NAME: swiftquote
       JWT_SECRET: devsecretkey123
+      STORAGE: postgres
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - internal-net
 

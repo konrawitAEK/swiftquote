@@ -1,6 +1,8 @@
 package memory
 
 import (
+	"context"
+
 	"github.com/google/uuid"
 
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/domain"
@@ -22,10 +24,11 @@ const (
 
 // Seed loads the demo tenant, login and client.
 func (s *Store) Seed() {
-	s.PutOrganization(domain.Organization{ID: DemoOrgID, Name: "Demo Co., Ltd.", Slug: "demo", Currency: "THB"})
-	s.PutUser(
+	ctx := context.Background()
+	_ = s.PutOrganization(ctx, domain.Organization{ID: DemoOrgID, Name: "Demo Co., Ltd.", Slug: "demo", Currency: "THB"})
+	_ = s.PutUser(ctx,
 		domain.User{ID: DemoUserID, Email: DemoEmail, PasswordHash: demoPasswordHash, FullName: "Demo Owner"},
 		domain.Membership{OrganizationID: DemoOrgID, UserID: DemoUserID, Role: domain.RoleOwner},
 	)
-	s.PutClient(domain.Client{ID: DemoClientID, OrganizationID: DemoOrgID, Name: "Acme Corporation", Email: "buyer@acme.example"})
+	_ = s.PutClient(ctx, domain.Client{ID: DemoClientID, OrganizationID: DemoOrgID, Name: "Acme Corporation", Email: "buyer@acme.example"})
 }

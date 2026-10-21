@@ -12,6 +12,7 @@ import (
 	httpdelivery "github.com/konrawitAEK/swiftquote/backend/go-service/internal/delivery/http"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/quote"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/storage/memory"
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/storage/postgres"
 )
 
 func main() {
@@ -19,23 +20,37 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
-	if cfg.Storage == "postgres" {
-		log.Fatal("STORAGE=postgres: Postgres repositories are not implemented yet; use STORAGE=memory")
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	store := memory.NewStore()
-	store.Seed()
-	log.Printf("memory storage seeded; login with %s / %s", memory.DemoEmail, memory.DemoPassword)
+	var store interface {
+		auth.Repository
+		quote.Repository
+	}
+	ping := func(context.Context) error { return nil }
+	switch cfg.Storage {
+	case "postgres":
+		// The pool connects lazily, so the server starts even while Postgres is still booting;
+		// /healthz reports DB readiness.
+		pool, err := postgres.Connect(ctx, cfg.DatabaseURL)
+		if err != nil {
+			log.Fatalf("db pool: %v", err)
+		}
+		defer pool.Close()
+		store, ping = postgres.New(pool), pool.Ping
+	default:
+		mem := memory.NewStore()
+		mem.Seed()
+		store = mem
+		log.Printf("memory storage seeded; login with %s / %s", memory.DemoEmail, memory.DemoPassword)
+	}
 
 	app := httpdelivery.NewRouter(httpdelivery.Deps{
 		Auth:        auth.NewService(store, cfg.JWTSecret),
 		Quotes:      quote.NewService(store),
 		CORSOrigins: cfg.CORSOrigins,
 		Storage:     cfg.Storage,
-		Ping:        func(context.Context) error { return nil },
+		Ping:        ping,
 	})
 
 	go func() {
