@@ -6,29 +6,46 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/auth"
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/quote"
 )
 
-// Pinger is satisfied by *pgxpool.Pool.
-type Pinger interface {
-	Ping(ctx context.Context) error
+type Deps struct {
+	Auth        *auth.Service
+	Quotes      *quote.Service
+	CORSOrigins string
+	// Storage names the active backing store for /healthz; Ping checks it.
+	Storage string
+	Ping    func(ctx context.Context) error
 }
 
-func NewRouter(db Pinger) *fiber.App {
-	app := fiber.New(fiber.Config{DisableStartupMessage: true})
-	app.Use(recover.New(), logger.New())
+func NewRouter(d Deps) *fiber.App {
+	app := fiber.New(fiber.Config{DisableStartupMessage: true, ErrorHandler: errorHandler})
+	app.Use(recover.New(), logger.New(), cors.New(cors.Config{
+		AllowOrigins: d.CORSOrigins,
+		AllowHeaders: "Authorization, Content-Type",
+	}))
 
 	// Operational endpoint, intentionally outside /api/v1 and the contract.
 	app.Get("/healthz", func(c *fiber.Ctx) error {
 		ctx, cancel := context.WithTimeout(c.UserContext(), 2*time.Second)
 		defer cancel()
-		if err := db.Ping(ctx); err != nil {
-			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"status": "degraded", "db": "down"})
+		if err := d.Ping(ctx); err != nil {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"status": "degraded", "storage": d.Storage})
 		}
-		return c.JSON(fiber.Map{"status": "ok", "db": "up"})
+		return c.JSON(fiber.Map{"status": "ok", "storage": d.Storage})
 	})
 
-	app.Group("/api/v1")
+	h := &handlers{auth: d.Auth, quotes: d.Quotes}
+	api := app.Group("/api/v1")
+	api.Post("/auth/login", h.login)
+	api.Get("/quotes", h.requireAuth, h.listQuotes)
+	api.Post("/quotes", h.requireAuth, h.createQuote)
+	api.Get("/public/quotes/:accessToken", h.getPublicQuote)
+	api.Post("/public/quotes/:accessToken/accept", h.acceptPublicQuote)
 	return app
 }

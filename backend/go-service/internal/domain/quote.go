@@ -19,6 +19,14 @@ const (
 	StatusExpired  QuoteStatus = "expired"
 )
 
+func (s QuoteStatus) Valid() bool {
+	switch s {
+	case StatusDraft, StatusSent, StatusViewed, StatusAccepted, StatusRejected, StatusExpired:
+		return true
+	}
+	return false
+}
+
 // QuoteItem is a single priced line. Monetary fields use decimal, never float.
 type QuoteItem struct {
 	ID              uuid.UUID
@@ -45,6 +53,7 @@ type Quote struct {
 	GrandTotal     decimal.Decimal
 	AccessToken    uuid.UUID
 	SignedBy       *string
+	SignatureData  *string
 	SignedAt       *time.Time
 	Items          []QuoteItem
 	CreatedAt      time.Time

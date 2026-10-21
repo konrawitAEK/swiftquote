@@ -7,10 +7,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/auth"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/config"
 	httpdelivery "github.com/konrawitAEK/swiftquote/backend/go-service/internal/delivery/http"
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/quote"
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/storage/memory"
 )
 
 func main() {
@@ -18,19 +19,24 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
+	if cfg.Storage == "postgres" {
+		log.Fatal("STORAGE=postgres: Postgres repositories are not implemented yet; use STORAGE=memory")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// The pool connects lazily, so the server starts even while Postgres is still booting;
-	// /healthz reports DB readiness.
-	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
-	if err != nil {
-		log.Fatalf("db pool: %v", err)
-	}
-	defer pool.Close()
+	store := memory.NewStore()
+	store.Seed()
+	log.Printf("memory storage seeded; login with %s / %s", memory.DemoEmail, memory.DemoPassword)
 
-	app := httpdelivery.NewRouter(pool)
+	app := httpdelivery.NewRouter(httpdelivery.Deps{
+		Auth:        auth.NewService(store, cfg.JWTSecret),
+		Quotes:      quote.NewService(store),
+		CORSOrigins: cfg.CORSOrigins,
+		Storage:     cfg.Storage,
+		Ping:        func(context.Context) error { return nil },
+	})
 
 	go func() {
 		<-ctx.Done()
@@ -41,7 +47,7 @@ func main() {
 		}
 	}()
 
-	log.Printf("swiftquote go-service listening on :%s", cfg.Port)
+	log.Printf("swiftquote go-service listening on :%s (storage=%s)", cfg.Port, cfg.Storage)
 	if err := app.Listen(":" + cfg.Port); err != nil {
 		log.Fatalf("listen: %v", err)
 	}
