@@ -1,0 +1,29 @@
+name: Frontend React
+on:
+  push:
+    paths: ["frontend/react-mui-app/**", "contracts/**", ".github/workflows/ci-frontend-react.yml"]
+  pull_request:
+    paths: ["frontend/react-mui-app/**", "contracts/**", ".github/workflows/ci-frontend-react.yml"]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/react-mui-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/react-mui-app/package-lock.json
+      - run: npm ci
+      - name: Generated API types match the contract
+        working-directory: .
+        run: |
+          make gen-types
+          git diff --exit-code -- frontend/react-mui-app/src/api/schema.d.ts \
+            || { echo "::error::schema.d.ts is stale. Run 'make gen-types' and commit."; exit 1; }
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
