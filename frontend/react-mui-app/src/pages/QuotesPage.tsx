@@ -17,7 +17,7 @@ import {
   Typography,
 } from '@mui/material'
 import { useEffect, useState } from 'react'
-import { Link as RouterLink } from 'react-router-dom'
+import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { api, errorText, type QuoteStatus, type Schemas } from '../api/client'
 import { StatusChip } from '../components/StatusChip'
 import { formatMoney } from '../pricing/pricing'
@@ -28,6 +28,7 @@ export function QuotesPage() {
   const [status, setStatus] = useState<QuoteStatus | ''>('')
   const [quotes, setQuotes] = useState<Schemas['QuoteSummary'][] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     let cancelled = false
@@ -92,8 +93,17 @@ export function QuotesPage() {
             </TableHead>
             <TableBody>
               {quotes?.map((q) => (
-                <TableRow key={q.id} hover>
-                  <TableCell sx={{ fontWeight: 500 }}>{q.quoteNumber}</TableCell>
+                <TableRow key={q.id} hover onClick={() => navigate(`/quotes/${q.id}`)} sx={{ cursor: 'pointer' }}>
+                  <TableCell sx={{ fontWeight: 500 }}>
+                    <Box
+                      component={RouterLink}
+                      to={`/quotes/${q.id}`}
+                      onClick={(e) => e.stopPropagation()}
+                      sx={{ color: 'inherit', textDecoration: 'none' }}
+                    >
+                      {q.quoteNumber}
+                    </Box>
+                  </TableCell>
                   <TableCell>{q.clientName}</TableCell>
                   <TableCell>
                     <StatusChip status={q.status} />

@@ -1,5 +1,4 @@
 import AddIcon from '@mui/icons-material/Add'
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined'
 import {
   Alert,
@@ -23,6 +22,9 @@ import {
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { api, errorText, type Schemas } from '../api/client'
+import { ShareLink } from '../components/ShareLink'
+import { shareUrl } from '../components/shareUrl'
+import { TotalRow } from '../components/TotalRow'
 import { calculate, formatMoney, toDecimal } from '../pricing/pricing'
 
 interface Line {
@@ -116,8 +118,6 @@ export function QuoteBuilderPage() {
       setBusy(false)
     }
   }
-
-  const shareUrl = created ? `${window.location.origin}/p/${created.accessToken}` : ''
 
   return (
     <Box component="form" onSubmit={submit}>
@@ -278,44 +278,19 @@ export function QuoteBuilderPage() {
             Grand total {created && formatMoney(created.grandTotal)}. Share this link with your client so they can review
             and sign:
           </Typography>
-          <TextField
-            value={shareUrl}
-            fullWidth
-            size="small"
-            slotProps={{
-              htmlInput: { readOnly: true },
-              input: {
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <Tooltip title="Copy link">
-                      <IconButton aria-label="Copy link" onClick={() => navigator.clipboard?.writeText(shareUrl)}>
-                        <ContentCopyIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </InputAdornment>
-                ),
-              },
-            }}
-          />
+          {created?.accessToken && <ShareLink accessToken={created.accessToken} />}
         </DialogContent>
         <DialogActions>
-          <Button href={shareUrl} target="_blank" rel="noopener">
-            Open client view
-          </Button>
-          <Button component={RouterLink} to="/quotes" variant="contained">
-            Back to quotations
+          {created?.accessToken && (
+            <Button href={shareUrl(created.accessToken)} target="_blank" rel="noopener">
+              Open client view
+            </Button>
+          )}
+          <Button component={RouterLink} to={`/quotes/${created?.id ?? ''}`} variant="contained">
+            View quotation
           </Button>
         </DialogActions>
       </Dialog>
     </Box>
-  )
-}
-
-function TotalRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
-      <Typography sx={{ fontWeight: strong ? 700 : 400 }}>{label}</Typography>
-      <Typography sx={{ fontWeight: strong ? 700 : 400 }}>{value}</Typography>
-    </Stack>
   )
 }

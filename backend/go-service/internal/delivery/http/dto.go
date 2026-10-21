@@ -101,21 +101,27 @@ type quoteDetail struct {
 	ID             uuid.UUID          `json:"id"`
 	QuoteNumber    string             `json:"quoteNumber"`
 	Status         domain.QuoteStatus `json:"status"`
+	ExpiryDate     string             `json:"expiryDate"`
 	Subtotal       json.Number        `json:"subtotal"`
 	DiscountAmount json.Number        `json:"discountAmount"`
 	TaxAmount      json.Number        `json:"taxAmount"`
 	GrandTotal     json.Number        `json:"grandTotal"`
 	AccessToken    uuid.UUID          `json:"accessToken"`
+	SignedBy       *string            `json:"signedBy"`
 	SignedAt       *time.Time         `json:"signedAt"`
 	Items          []quoteItemView    `json:"items"`
 }
 
 type publicQuoteView struct {
-	QuoteNumber string          `json:"quoteNumber"`
-	VendorName  string          `json:"vendorName"`
-	VendorLogo  *string         `json:"vendorLogo"`
-	GrandTotal  json.Number     `json:"grandTotal"`
-	Items       []quoteItemView `json:"items"`
+	QuoteNumber string             `json:"quoteNumber"`
+	Status      domain.QuoteStatus `json:"status"`
+	ExpiryDate  string             `json:"expiryDate"`
+	SignedBy    *string            `json:"signedBy"`
+	SignedAt    *time.Time         `json:"signedAt"`
+	VendorName  string             `json:"vendorName"`
+	VendorLogo  *string            `json:"vendorLogo"`
+	GrandTotal  json.Number        `json:"grandTotal"`
+	Items       []quoteItemView    `json:"items"`
 }
 
 type errorResponse struct {
@@ -153,11 +159,13 @@ func toQuoteDetail(q domain.Quote) quoteDetail {
 		ID:             q.ID,
 		QuoteNumber:    q.QuoteNumber,
 		Status:         q.Status,
+		ExpiryDate:     q.ExpiryDate.Format(dateLayout),
 		Subtotal:       money(q.Subtotal),
 		DiscountAmount: money(q.DiscountAmount),
 		TaxAmount:      money(q.TaxAmount),
 		GrandTotal:     money(q.GrandTotal),
 		AccessToken:    q.AccessToken,
+		SignedBy:       q.SignedBy,
 		SignedAt:       q.SignedAt,
 		Items:          toItemViews(q.Items),
 	}
@@ -181,6 +189,10 @@ func toQuoteSummaries(rows []quote.Summary) []quoteSummary {
 func toPublicView(v quote.PublicView) publicQuoteView {
 	return publicQuoteView{
 		QuoteNumber: v.Quote.QuoteNumber,
+		Status:      v.Quote.Status,
+		ExpiryDate:  v.Quote.ExpiryDate.Format(dateLayout),
+		SignedBy:    v.Quote.SignedBy,
+		SignedAt:    v.Quote.SignedAt,
 		VendorName:  v.VendorName,
 		VendorLogo:  v.VendorLogo,
 		GrandTotal:  money(v.Quote.GrandTotal),

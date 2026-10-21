@@ -143,6 +143,18 @@ func (h *handlers) createQuote(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(toQuoteDetail(q))
 }
 
+func (h *handlers) getQuote(c *fiber.Ctx) error {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return fmt.Errorf("%w: quote not found", domain.ErrNotFound)
+	}
+	q, err := h.quotes.Get(c.UserContext(), principal(c).TenantID, id)
+	if err != nil {
+		return err
+	}
+	return c.JSON(toQuoteDetail(q))
+}
+
 func (h *handlers) getPublicQuote(c *fiber.Ctx) error {
 	token, err := accessToken(c)
 	if err != nil {

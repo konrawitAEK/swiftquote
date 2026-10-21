@@ -36,6 +36,8 @@ type Repository interface {
 	// Create persists q and its items; duplicate (organization, quoteNumber) returns domain.ErrConflict.
 	Create(ctx context.Context, q *domain.Quote) error
 	List(ctx context.Context, orgID uuid.UUID, status *domain.QuoteStatus) ([]Summary, error)
+	// Get returns a quote of orgID with its items, or domain.ErrNotFound.
+	Get(ctx context.Context, orgID, id uuid.UUID) (domain.Quote, error)
 	// GetPublic looks up by access token, or returns domain.ErrNotFound.
 	GetPublic(ctx context.Context, accessToken uuid.UUID) (PublicView, error)
 	// UpdateStatus sets status only if the current status is one of from; otherwise domain.ErrConflict.
@@ -125,6 +127,14 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Quote, err
 
 func (s *Service) List(ctx context.Context, orgID uuid.UUID, status *domain.QuoteStatus) ([]Summary, error) {
 	return s.repo.List(ctx, orgID, status)
+}
+
+func (s *Service) Get(ctx context.Context, orgID, id uuid.UUID) (domain.Quote, error) {
+	q, err := s.repo.Get(ctx, orgID, id)
+	if errors.Is(err, domain.ErrNotFound) {
+		return domain.Quote{}, fmt.Errorf("%w: quote not found", err)
+	}
+	return q, err
 }
 
 // GetPublic returns the client-facing view. Expired quotes are reported as not found,

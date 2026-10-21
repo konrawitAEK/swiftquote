@@ -112,6 +112,32 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  /quotes/{id}:
+    get:
+      summary: Get one quotation of the current tenant, including its share token
+      operationId: getQuote
+      tags: [Quotes]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Quotation detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuoteDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/QuoteNotFound'
+
   /public/quotes/{accessToken}:
     get:
       summary: Fetch quote details for client portal without auth
@@ -185,6 +211,12 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     NotFound:
       description: Quote expired or not found (also returned for malformed access tokens)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    QuoteNotFound:
+      description: No quotation with this id in the current tenant (also returned for malformed ids)
       content:
         application/json:
           schema:
@@ -278,16 +310,18 @@ components:
 
     QuoteDetail:
       type: object
-      required: [id, quoteNumber, status, subtotal, discountAmount, taxAmount, grandTotal, items]
+      required: [id, quoteNumber, status, expiryDate, subtotal, discountAmount, taxAmount, grandTotal, items]
       properties:
         id: { type: string, format: uuid }
         quoteNumber: { type: string }
         status: { $ref: '#/components/schemas/QuoteStatus' }
+        expiryDate: { type: string, format: date }
         subtotal: { type: number }
         discountAmount: { type: number }
         taxAmount: { type: number }
         grandTotal: { type: number }
         accessToken: { type: string, format: uuid }
+        signedBy: { type: string, nullable: true }
         signedAt: { type: string, format: date-time, nullable: true }
         items:
           type: array
@@ -301,9 +335,13 @@ components:
 
     PublicQuoteView:
       type: object
-      required: [quoteNumber, vendorName, grandTotal, items]
+      required: [quoteNumber, status, expiryDate, vendorName, grandTotal, items]
       properties:
         quoteNumber: { type: string }
+        status: { $ref: '#/components/schemas/QuoteStatus' }
+        expiryDate: { type: string, format: date }
+        signedBy: { type: string, nullable: true }
+        signedAt: { type: string, format: date-time, nullable: true }
         vendorName: { type: string }
         vendorLogo: { type: string, nullable: true }
         grandTotal: { type: number }

@@ -169,6 +169,18 @@ func TestQuoteLifecycle(t *testing.T) {
 			t.Errorf("signedAt: got %v, want null", created["signedAt"])
 		}
 		accessToken := created["accessToken"].(string)
+		quoteID := created["id"].(string)
+
+		var detail map[string]any
+		if s := e.do("GET", "/api/v1/quotes/"+quoteID, token, nil, &detail); s != 200 {
+			t.Fatalf("get status %d: %v", s, detail)
+		}
+		assertJSON(t, detail, "accessToken", accessToken)
+		assertJSON(t, detail, "grandTotal", 194.21)
+		assertJSON(t, detail, "expiryDate", validQuoteBody("x")["expiryDate"])
+		if items, _ := detail["items"].([]any); len(items) != 2 || items[0].(map[string]any)["title"] != "Consulting" {
+			t.Errorf("items not returned in submitted order: %v", detail["items"])
+		}
 
 		var clients []map[string]any
 		if s := e.do("GET", "/api/v1/clients", token, nil, &clients); s != 200 || len(clients) != 1 {
@@ -188,6 +200,10 @@ func TestQuoteLifecycle(t *testing.T) {
 			t.Fatalf("public status %d: %v", s, public)
 		}
 		assertJSON(t, public, "vendorName", "Demo Co., Ltd.")
+		assertJSON(t, public, "status", "draft")
+		if public["signedBy"] != nil {
+			t.Errorf("signedBy before accept: got %v, want null", public["signedBy"])
+		}
 		assertJSON(t, public, "grandTotal", 194.21)
 
 		accept := map[string]string{"signerName": "Jane Buyer", "signatureDataUrl": "data:image/png;base64,AAAA"}
@@ -205,6 +221,14 @@ func TestQuoteLifecycle(t *testing.T) {
 			t.Fatalf("second accept: got %d, want 409", s)
 		}
 		assertJSON(t, errBody, "code", "CONFLICT")
+
+		// The portal must be able to show that the quote is already signed.
+		public = nil
+		e.do("GET", "/api/v1/public/quotes/"+accessToken, "", nil, &public)
+		assertJSON(t, public, "status", "accepted")
+		assertJSON(t, public, "signedBy", "Jane Buyer")
+		e.do("GET", "/api/v1/quotes/"+quoteID, token, nil, &detail)
+		assertJSON(t, detail, "signedBy", "Jane Buyer")
 	})
 }
 
@@ -244,6 +268,9 @@ func TestErrorResponses(t *testing.T) {
 			{"unknown email", "POST", "/api/v1/auth/login", "", map[string]string{"email": "x@y.z", "password": "password"}, 401, "UNAUTHORIZED"},
 			{"list without token", "GET", "/api/v1/quotes", "", nil, 401, "UNAUTHORIZED"},
 			{"clients without token", "GET", "/api/v1/clients", "", nil, 401, "UNAUTHORIZED"},
+			{"get quote without token", "GET", "/api/v1/quotes/" + uuid.NewString(), "", nil, 401, "UNAUTHORIZED"},
+			{"unknown quote id", "GET", "/api/v1/quotes/" + uuid.NewString(), token, nil, 404, "NOT_FOUND"},
+			{"malformed quote id", "GET", "/api/v1/quotes/not-a-uuid", token, nil, 404, "NOT_FOUND"},
 			{"list with bad token", "GET", "/api/v1/quotes", "garbage", nil, 401, "UNAUTHORIZED"},
 			{"invalid status filter", "GET", "/api/v1/quotes?status=bogus", token, nil, 400, "VALIDATION_ERROR"},
 			{"create without token", "POST", "/api/v1/quotes", "", validQuoteBody("Q-X"), 401, "UNAUTHORIZED"},
@@ -281,7 +308,8 @@ func TestErrorResponses(t *testing.T) {
 
 func TestQuotesAreTenantScoped(t *testing.T) {
 	eachStore(t, func(t *testing.T, e *testEnv) {
-		e.do("POST", "/api/v1/quotes", e.login(), validQuoteBody("Q-001"), nil)
+		var mine map[string]any
+		e.do("POST", "/api/v1/quotes", e.login(), validQuoteBody("Q-001"), &mine)
 
 		otherOrg, otherUser := uuid.New(), uuid.New()
 		ctx := context.Background()
@@ -297,6 +325,10 @@ func TestQuotesAreTenantScoped(t *testing.T) {
 		var res map[string]any
 		e.do("POST", "/api/v1/auth/login", "", map[string]string{"email": "other@example.com", "password": memory.DemoPassword}, &res)
 		otherToken := res["accessToken"].(string)
+		var errBody map[string]any
+		if s := e.do("GET", "/api/v1/quotes/"+mine["id"].(string), otherToken, nil, &errBody); s != 404 {
+			t.Fatalf("other tenant reading a quote by id: got %d, want 404", s)
+		}
 		var list []map[string]any
 		if s := e.do("GET", "/api/v1/quotes", otherToken, nil, &list); s != 200 || len(list) != 0 {
 			t.Fatalf("other tenant sees %d quotes (status %d), want 0", len(list), s)

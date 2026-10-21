@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from './components/AppLayout'
 import { LoginPage } from './pages/LoginPage'
 import { PublicQuotePage } from './pages/PublicQuotePage'
+import { QuoteDetailPage } from './pages/QuoteDetailPage'
 import { QuoteBuilderPage } from './pages/QuoteBuilderPage'
 import { QuotesPage } from './pages/QuotesPage'
 
@@ -13,6 +14,7 @@ export default function App() {
       <Route element={<AppLayout />}>
         <Route path="/quotes" element={<QuotesPage />} />
         <Route path="/quotes/new" element={<QuoteBuilderPage />} />
+        <Route path="/quotes/:id" element={<QuoteDetailPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/quotes" replace />} />
     </Routes>

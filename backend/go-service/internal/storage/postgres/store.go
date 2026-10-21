@@ -178,6 +178,23 @@ func scanQuote(row pgx.Row, extra ...any) (domain.Quote, error) {
 	return q, nil
 }
 
+func (s *Store) Get(ctx context.Context, orgID, id uuid.UUID) (domain.Quote, error) {
+	q, err := scanQuote(s.pool.QueryRow(ctx, `
+		SELECT `+quoteColumns+`
+		FROM quotes q
+		WHERE q.id = $1 AND q.organization_id = $2`, id, orgID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Quote{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Quote{}, fmt.Errorf("get quote: %w", err)
+	}
+	if q.Items, err = s.items(ctx, q.ID); err != nil {
+		return domain.Quote{}, err
+	}
+	return q, nil
+}
+
 func (s *Store) GetPublic(ctx context.Context, accessToken uuid.UUID) (quote.PublicView, error) {
 	var v quote.PublicView
 	q, err := scanQuote(s.pool.QueryRow(ctx, `

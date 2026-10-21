@@ -89,7 +89,9 @@ export function PublicQuotePage() {
               <Typography variant="h4" component="h1" sx={{ fontWeight: 700 }}>
                 {state.quote.vendorName}
               </Typography>
-              <Typography color="text.secondary">No. {state.quote.quoteNumber}</Typography>
+              <Typography color="text.secondary">
+                No. {state.quote.quoteNumber} · Valid until {state.quote.expiryDate}
+              </Typography>
             </Box>
 
             <Card>
@@ -129,6 +131,14 @@ export function PublicQuotePage() {
               <Alert icon={<CheckCircleIcon />} severity="success">
                 Thank you, {signerName}. This quotation was accepted on {new Date(acceptedAt).toLocaleString()}.
               </Alert>
+            ) : state.quote.status === 'accepted' ? (
+              <Alert icon={<CheckCircleIcon />} severity="success">
+                This quotation was accepted
+                {state.quote.signedBy && ` by ${state.quote.signedBy}`}
+                {state.quote.signedAt && ` on ${new Date(state.quote.signedAt).toLocaleString()}`}.
+              </Alert>
+            ) : state.quote.status === 'rejected' ? (
+              <Alert severity="info">This quotation was declined. Please contact the sender if this is a mistake.</Alert>
             ) : (
               <Card component="form" onSubmit={accept}>
                 <CardContent>

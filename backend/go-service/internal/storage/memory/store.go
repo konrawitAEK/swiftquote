@@ -133,6 +133,16 @@ func (s *Store) List(_ context.Context, orgID uuid.UUID, status *domain.QuoteSta
 	return out, nil
 }
 
+func (s *Store) Get(_ context.Context, orgID, id uuid.UUID) (domain.Quote, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	q, ok := s.quotes[id]
+	if !ok || q.OrganizationID != orgID {
+		return domain.Quote{}, domain.ErrNotFound
+	}
+	return cloneQuote(q), nil
+}
+
 func (s *Store) GetPublic(_ context.Context, accessToken uuid.UUID) (quote.PublicView, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

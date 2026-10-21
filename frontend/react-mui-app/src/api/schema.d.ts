@@ -56,6 +56,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/quotes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one quotation of the current tenant, including its share token */
+        get: operations["getQuote"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/public/quotes/{accessToken}": {
         parameters: {
             query?: never;
@@ -155,12 +172,15 @@ export interface components {
             id: string;
             quoteNumber: string;
             status: components["schemas"]["QuoteStatus"];
+            /** Format: date */
+            expiryDate: string;
             subtotal: number;
             discountAmount: number;
             taxAmount: number;
             grandTotal: number;
             /** Format: uuid */
             accessToken?: string;
+            signedBy?: string | null;
             /** Format: date-time */
             signedAt?: string | null;
             items: {
@@ -172,6 +192,12 @@ export interface components {
         };
         PublicQuoteView: {
             quoteNumber: string;
+            status: components["schemas"]["QuoteStatus"];
+            /** Format: date */
+            expiryDate: string;
+            signedBy?: string | null;
+            /** Format: date-time */
+            signedAt?: string | null;
             vendorName: string;
             vendorLogo?: string | null;
             grandTotal: number;
@@ -206,6 +232,15 @@ export interface components {
         };
         /** @description Quote expired or not found (also returned for malformed access tokens) */
         NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /** @description No quotation with this id in the current tenant (also returned for malformed ids) */
+        QuoteNotFound: {
             headers: {
                 [name: string]: unknown;
             };
@@ -334,6 +369,30 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    getQuote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Quotation detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuoteDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["QuoteNotFound"];
         };
     };
     getPublicQuote: {

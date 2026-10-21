@@ -48,6 +48,7 @@ func NewRouter(d Deps) *fiber.App {
 	api.Get("/clients", h.requireAuth, h.listClients)
 	api.Get("/quotes", h.requireAuth, h.listQuotes)
 	api.Post("/quotes", h.requireAuth, h.createQuote)
+	api.Get("/quotes/:id", h.requireAuth, h.getQuote)
 	api.Get("/public/quotes/:accessToken", h.getPublicQuote)
 	api.Post("/public/quotes/:accessToken/accept", h.acceptPublicQuote)
 	return app
