@@ -9,6 +9,7 @@ import (
 
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/admin"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/auth"
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/catalog"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/client"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/config"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/dashboard"
@@ -36,6 +37,7 @@ func main() {
 
 	app := httpdelivery.NewRouter(httpdelivery.Deps{
 		Auth:        auth.NewService(store, cfg.JWTSecret),
+		Catalog:     catalog.NewService(store),
 		Clients:     client.NewService(store),
 		Quotes:      quote.NewService(store),
 		Admin:       admin.NewService(store),

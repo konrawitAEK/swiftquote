@@ -12,6 +12,7 @@ import (
 
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/admin"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/auth"
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/catalog"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/client"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/dashboard"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/quote"
@@ -19,6 +20,7 @@ import (
 
 type Deps struct {
 	Auth        *auth.Service
+	Catalog     *catalog.Service
 	Clients     *client.Service
 	Quotes      *quote.Service
 	Admin       *admin.Service
@@ -46,11 +48,12 @@ func NewRouter(d Deps) *fiber.App {
 		return c.JSON(fiber.Map{"status": "ok", "storage": "postgres"})
 	})
 
-	h := &handlers{auth: d.Auth, clients: d.Clients, quotes: d.Quotes, admin: d.Admin, dashboard: d.Dashboard}
+	h := &handlers{auth: d.Auth, catalog: d.Catalog, clients: d.Clients, quotes: d.Quotes, admin: d.Admin, dashboard: d.Dashboard}
 	api := app.Group("/api/v1")
 	api.Post("/auth/login", h.login)
 
 	api.Get("/clients", h.requireAuth, h.listClients)
+	api.Get("/categories", h.requireAuth, h.listCategories)
 
 	api.Get("/quotes", h.requireAuth, h.listQuotes)
 	api.Post("/quotes", h.requireAuth, h.createQuote)
@@ -71,6 +74,8 @@ func NewRouter(d Deps) *fiber.App {
 	api.Get("/admin/teams", h.requireAuth, h.listTeams)
 	api.Post("/admin/teams", h.requireAuth, h.createTeam)
 	api.Put("/admin/teams/:id", h.requireAuth, h.updateTeam)
+	api.Post("/admin/categories", h.requireAuth, h.createCategory)
+	api.Put("/admin/categories/:id", h.requireAuth, h.updateCategory)
 
 	api.Get("/public/quotes/:accessToken", h.getPublicQuote)
 	api.Post("/public/quotes/:accessToken/accept", h.acceptPublicQuote)

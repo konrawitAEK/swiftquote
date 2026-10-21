@@ -31,8 +31,10 @@ QUOTE=$(curl -sf -X POST "$BASE/quotes" -H "$JSON" -H "Authorization: Bearer $RM
   "quoteNumber": "$NUMBER",
   "expiryDate": "$EXPIRY",
   "items": [
-    {"title": "Website redesign", "quantity": 1, "unitPrice": 45000, "discountPercent": 5},
-    {"title": "Hosting (months)", "quantity": 12, "unitPrice": 350}
+    {"title": "Website redesign", "categoryId": "00000000-0000-4000-8000-000000000031",
+     "quantity": 1, "unitPrice": 45000, "discountPercent": 5},
+    {"title": "Hosting (months)", "categoryId": "00000000-0000-4000-8000-000000000030",
+     "quantity": 12, "unitPrice": 350}
   ]
 }
 EOF

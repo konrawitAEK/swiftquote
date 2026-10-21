@@ -11,6 +11,7 @@ import (
 
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/admin"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/auth"
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/catalog"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/client"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/dashboard"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/domain"
@@ -24,6 +25,7 @@ const actorKey = "actor"
 
 type handlers struct {
 	auth      *auth.Service
+	catalog   *catalog.Service
 	clients   *client.Service
 	quotes    *quote.Service
 	admin     *admin.Service
@@ -99,6 +101,42 @@ func (h *handlers) listClients(c *fiber.Ctx) error {
 		return err
 	}
 	return c.JSON(toClientViews(cs))
+}
+
+func (h *handlers) listCategories(c *fiber.Ctx) error {
+	cs, err := h.catalog.List(c.UserContext(), actor(c))
+	if err != nil {
+		return err
+	}
+	out := make([]categoryView, len(cs))
+	for i, cat := range cs {
+		out[i] = toCategoryView(cat)
+	}
+	return c.JSON(out)
+}
+
+func (h *handlers) createCategory(c *fiber.Ctx) error {
+	var req createCategoryRequest
+	if err := decode(c, &req); err != nil {
+		return err
+	}
+	cat, err := h.catalog.Create(c.UserContext(), actor(c), req.Name)
+	if err != nil {
+		return err
+	}
+	return c.Status(fiber.StatusCreated).JSON(toCategoryView(cat))
+}
+
+func (h *handlers) updateCategory(c *fiber.Ctx) error {
+	var req updateCategoryRequest
+	if err := decode(c, &req); err != nil {
+		return err
+	}
+	cat, err := h.catalog.Update(c.UserContext(), actor(c), pathID(c), req.Name, req.Active)
+	if err != nil {
+		return err
+	}
+	return c.JSON(toCategoryView(cat))
 }
 
 func (h *handlers) listQuotes(c *fiber.Ctx) error {

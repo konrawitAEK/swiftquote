@@ -75,6 +75,7 @@ type clientView struct {
 
 type quoteItemInput struct {
 	Title           string           `json:"title"`
+	CategoryID      *uuid.UUID       `json:"categoryId"`
 	Description     string           `json:"description"`
 	Quantity        *decimal.Decimal `json:"quantity"`
 	UnitPrice       *decimal.Decimal `json:"unitPrice"`
@@ -98,7 +99,7 @@ func (r createQuoteRequest) toInput() quote.CreateInput {
 	}
 	for _, it := range r.Items {
 		in.Items = append(in.Items, quote.ItemInput{
-			Title: it.Title, Description: it.Description, Quantity: it.Quantity, UnitPrice: it.UnitPrice,
+			Title: it.Title, CategoryID: it.CategoryID, Description: it.Description, Quantity: it.Quantity, UnitPrice: it.UnitPrice,
 			DiscountPercent: it.DiscountPercent, TaxPercent: it.TaxPercent,
 		})
 	}
@@ -126,6 +127,7 @@ type quoteSummary struct {
 
 type quoteItemView struct {
 	Title           string      `json:"title"`
+	Category        *refView    `json:"category"`
 	Description     *string     `json:"description"`
 	Quantity        json.Number `json:"quantity"`
 	UnitPrice       json.Number `json:"unitPrice"`
@@ -212,6 +214,30 @@ type teamRequest struct {
 	WOUserID *uuid.UUID `json:"woUserId"`
 }
 
+type categoryView struct {
+	ID     uuid.UUID `json:"id"`
+	Name   string    `json:"name"`
+	Active bool      `json:"active"`
+}
+
+type createCategoryRequest struct {
+	Name string `json:"name"`
+}
+
+type updateCategoryRequest struct {
+	Name   string `json:"name"`
+	Active *bool  `json:"active"`
+}
+
+type measureView struct {
+	Count  int         `json:"count"`
+	Amount json.Number `json:"amount"`
+}
+
+func toMeasure(m dashboard.Measure) measureView {
+	return measureView{Count: m.Count, Amount: money(m.Amount)}
+}
+
 type statusRowView struct {
 	Status domain.QuoteStatus `json:"status"`
 	Count  int                `json:"count"`
@@ -219,38 +245,46 @@ type statusRowView struct {
 }
 
 type monthRowView struct {
-	Month          string      `json:"month"`
-	AcceptedCount  int         `json:"acceptedCount"`
-	AcceptedAmount json.Number `json:"acceptedAmount"`
+	Month   string      `json:"month"`
+	Won     measureView `json:"won"`
+	Pending measureView `json:"pending"`
 }
 
 type rmRowView struct {
-	User           refView     `json:"user"`
-	Team           *string     `json:"team"`
-	QuoteCount     int         `json:"quoteCount"`
-	SentCount      int         `json:"sentCount"`
-	AcceptedCount  int         `json:"acceptedCount"`
-	AcceptedAmount json.Number `json:"acceptedAmount"`
+	User       refView     `json:"user"`
+	Team       *string     `json:"team"`
+	QuoteCount int         `json:"quoteCount"`
+	SentCount  int         `json:"sentCount"`
+	Won        measureView `json:"won"`
+	Pending    measureView `json:"pending"`
 }
 
 type teamRowView struct {
-	ID             uuid.UUID   `json:"id"`
-	Name           string      `json:"name"`
-	AcceptedCount  int         `json:"acceptedCount"`
-	AcceptedAmount json.Number `json:"acceptedAmount"`
+	ID      uuid.UUID   `json:"id"`
+	Name    string      `json:"name"`
+	Won     measureView `json:"won"`
+	Pending measureView `json:"pending"`
+}
+
+type categoryRowView struct {
+	Category *refView    `json:"category"`
+	Won      measureView `json:"won"`
+	Pending  measureView `json:"pending"`
 }
 
 type dashboardView struct {
-	From           *string         `json:"from"`
-	To             *string         `json:"to"`
-	AcceptedAmount json.Number     `json:"acceptedAmount"`
-	AcceptedCount  int             `json:"acceptedCount"`
-	SentCount      int             `json:"sentCount"`
-	ConversionRate json.Number     `json:"conversionRate"`
-	ByStatus       []statusRowView `json:"byStatus"`
-	ByMonth        []monthRowView  `json:"byMonth"`
-	ByRM           []rmRowView     `json:"byRm"`
-	ByTeam         []teamRowView   `json:"byTeam"`
+	From           *string           `json:"from"`
+	To             *string           `json:"to"`
+	Won            measureView       `json:"won"`
+	Pending        measureView       `json:"pending"`
+	InApproval     measureView       `json:"inApproval"`
+	SentCount      int               `json:"sentCount"`
+	ConversionRate json.Number       `json:"conversionRate"`
+	ByStatus       []statusRowView   `json:"byStatus"`
+	ByMonth        []monthRowView    `json:"byMonth"`
+	ByRM           []rmRowView       `json:"byRm"`
+	ByTeam         []teamRowView     `json:"byTeam"`
+	ByCategory     []categoryRowView `json:"byCategory"`
 }
 
 type errorResponse struct {
@@ -275,6 +309,7 @@ func toItemViews(items []domain.QuoteItem) []quoteItemView {
 	for i, it := range items {
 		out[i] = quoteItemView{
 			Title:           it.Title,
+			Category:        toRef(it.Category),
 			Quantity:        money(it.Quantity),
 			UnitPrice:       money(it.UnitPrice),
 			DiscountPercent: money(it.DiscountPercent),
@@ -357,6 +392,10 @@ func toTeamView(t admin.Team) teamView {
 	return teamView{ID: t.ID, Name: t.Name, WO: toRef(t.WO), Members: members}
 }
 
+func toCategoryView(c domain.Category) categoryView {
+	return categoryView{ID: c.ID, Name: c.Name, Active: c.Active}
+}
+
 func toDashboardView(s dashboard.Summary) dashboardView {
 	formatDate := func(t *time.Time) *string {
 		if t == nil {
@@ -368,27 +407,32 @@ func toDashboardView(s dashboard.Summary) dashboardView {
 	out := dashboardView{
 		From:           formatDate(s.Range.From),
 		To:             formatDate(s.Range.To),
-		AcceptedAmount: money(s.AcceptedAmount),
-		AcceptedCount:  s.AcceptedCount,
+		Won:            toMeasure(s.Won),
+		Pending:        toMeasure(s.Pending),
+		InApproval:     toMeasure(s.InApproval),
 		SentCount:      s.SentCount,
 		ConversionRate: json.Number(s.ConversionRate.StringFixed(4)),
 		ByStatus:       []statusRowView{},
 		ByMonth:        []monthRowView{},
 		ByRM:           []rmRowView{},
 		ByTeam:         []teamRowView{},
+		ByCategory:     []categoryRowView{},
 	}
 	for _, r := range s.ByStatus {
 		out.ByStatus = append(out.ByStatus, statusRowView{Status: r.Status, Count: r.Count, Amount: money(r.Amount)})
 	}
 	for _, r := range s.ByMonth {
-		out.ByMonth = append(out.ByMonth, monthRowView{Month: r.Month, AcceptedCount: r.AcceptedCount, AcceptedAmount: money(r.AcceptedAmount)})
+		out.ByMonth = append(out.ByMonth, monthRowView{Month: r.Month, Won: toMeasure(r.Won), Pending: toMeasure(r.Pending)})
 	}
 	for _, r := range s.ByRM {
 		out.ByRM = append(out.ByRM, rmRowView{User: refView{ID: r.User.ID, Name: r.User.Name}, Team: r.Team,
-			QuoteCount: r.QuoteCount, SentCount: r.SentCount, AcceptedCount: r.AcceptedCount, AcceptedAmount: money(r.AcceptedAmount)})
+			QuoteCount: r.QuoteCount, SentCount: r.SentCount, Won: toMeasure(r.Won), Pending: toMeasure(r.Pending)})
 	}
 	for _, r := range s.ByTeam {
-		out.ByTeam = append(out.ByTeam, teamRowView{ID: r.ID, Name: r.Name, AcceptedCount: r.AcceptedCount, AcceptedAmount: money(r.AcceptedAmount)})
+		out.ByTeam = append(out.ByTeam, teamRowView{ID: r.ID, Name: r.Name, Won: toMeasure(r.Won), Pending: toMeasure(r.Pending)})
+	}
+	for _, r := range s.ByCategory {
+		out.ByCategory = append(out.ByCategory, categoryRowView{Category: toRef(r.Category), Won: toMeasure(r.Won), Pending: toMeasure(r.Pending)})
 	}
 	return out
 }

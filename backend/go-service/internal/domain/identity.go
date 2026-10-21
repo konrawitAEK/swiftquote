@@ -54,6 +54,13 @@ type Ref struct {
 	Name string
 }
 
+// Category classifies quote lines; retired categories stay on existing quotes.
+type Category struct {
+	ID     uuid.UUID
+	Name   string
+	Active bool
+}
+
 type Client struct {
 	ID             uuid.UUID
 	OrganizationID uuid.UUID

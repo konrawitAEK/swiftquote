@@ -21,6 +21,7 @@ import (
 
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/admin"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/auth"
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/catalog"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/client"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/dashboard"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/quote"
@@ -34,6 +35,8 @@ const (
 	woUser       = "00000000-0000-4000-8000-000000000011"
 	rm1User      = "00000000-0000-4000-8000-000000000012"
 	adminUser    = "00000000-0000-4000-8000-000000000002"
+	catSoftware  = "00000000-0000-4000-8000-000000000030"
+	catServices  = "00000000-0000-4000-8000-000000000031"
 )
 
 type obj = map[string]any
@@ -66,6 +69,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	store := postgres.New(pool)
 	app := NewRouter(Deps{
 		Auth:        auth.NewService(store, "test-secret-at-least-32-bytes-long"),
+		Catalog:     catalog.NewService(store),
 		Clients:     client.NewService(store),
 		Quotes:      quote.NewService(store),
 		Admin:       admin.NewService(store),
@@ -141,8 +145,8 @@ func quoteBody(number string) obj {
 		"quoteNumber": number,
 		"expiryDate":  inAMonth(),
 		"items": []obj{
-			{"title": "Consulting", "quantity": 2, "unitPrice": 100, "discountPercent": 10},
-			{"title": "Setup fee", "quantity": 1, "unitPrice": 1.5},
+			{"title": "Consulting", "categoryId": catServices, "quantity": 2, "unitPrice": 100, "discountPercent": 10},
+			{"title": "Setup fee", "categoryId": catSoftware, "quantity": 1, "unitPrice": 1.5},
 		},
 	}
 }
@@ -203,7 +207,7 @@ func TestWorkflowFromDraftToAccepted(t *testing.T) {
 	assertEq(t, "return actor", last["actor"].(obj)["name"], "Somchai Wong")
 
 	body := quoteBody("Q-001")
-	body["items"] = []obj{{"title": "Consulting", "quantity": 2, "unitPrice": 100, "discountPercent": 5}}
+	body["items"] = []obj{{"title": "Consulting", "categoryId": catServices, "quantity": 2, "unitPrice": 100, "discountPercent": 5}}
 	q = e.expect(200, "", "PUT", "/api/v1/quotes/"+id, rm, body)
 	assertEq(t, "grandTotal after edit", q["grandTotal"], 203.30)
 
@@ -389,31 +393,47 @@ func TestDashboard(t *testing.T) {
 	customer := e.as("buyer@acme.example")
 	sign := obj{"signerName": "Alice", "signatureDataUrl": "data:x"}
 
+	// Each quote is Consulting (Services) 192.60 + Setup fee (Software) 1.61 = 194.21 incl. VAT.
 	a, _ := e.sent("Q-A")
 	e.expect(200, "", "POST", "/api/v1/quotes/"+a+"/accept", customer, sign)
 	b, _ := e.sent("Q-B")
 	e.expect(200, "", "POST", "/api/v1/quotes/"+b+"/reject", customer, nil)
-	_, _ = e.sent("Q-C")
-	e.create("rm1@swiftquote.dev", "Q-D") // draft
-	e.create("rm3@swiftquote.dev", "Q-E") // draft, Team Beta
+	_, _ = e.sent("Q-C") // pending: with the customer
+	d := e.create("rm1@swiftquote.dev", "Q-D")
+	e.expect(200, "", "POST", "/api/v1/quotes/"+d+"/submit", e.as("rm1@swiftquote.dev"), nil) // in approval
+	e.create("rm3@swiftquote.dev", "Q-E")                                                     // draft, Team Beta
 
 	woc := e.as("woc@swiftquote.dev")
 	s := e.expect(200, "", "GET", "/api/v1/dashboard/summary", woc, nil)
-	assertEq(t, "acceptedCount", s["acceptedCount"], 1)
-	assertEq(t, "acceptedAmount", s["acceptedAmount"], 194.21)
+	measure := func(v any) string { m := v.(obj); return fmt.Sprintf("%v/%v", m["count"], m["amount"]) }
+	assertEq(t, "won", measure(s["won"]), "1/194.21")
+	assertEq(t, "pending", measure(s["pending"]), "1/194.21")
+	assertEq(t, "inApproval", measure(s["inApproval"]), "1/194.21")
 	assertEq(t, "sentCount", s["sentCount"], 3)
 	assertEq(t, "conversionRate", s["conversionRate"], 0.3333)
 	assertEq(t, "byStatus length", len(s["byStatus"].([]any)), 8)
-	assertEq(t, "draft count", s["byStatus"].([]any)[0].(obj)["count"], 2)
-	assertEq(t, "byMonth", len(s["byMonth"].([]any)), 1)
+	assertEq(t, "draft count", s["byStatus"].([]any)[0].(obj)["count"], 1)
+
+	// Won is grouped by signing month (this month), pending by expiry month (next month).
+	months := s["byMonth"].([]any)
+	assertEq(t, "months", len(months), 2)
+	assertEq(t, "this month won", measure(months[0].(obj)["won"]), "1/194.21")
+	assertEq(t, "next month pending", measure(months[1].(obj)["pending"]), "1/194.21")
+
 	rms := s["byRm"].([]any)
-	assertEq(t, "top rm", rms[0].(obj)["user"].(obj)["name"], "Nok Rattana")
-	assertEq(t, "top rm quotes", rms[0].(obj)["quoteCount"], 4)
-	assertEq(t, "top rm sent", rms[0].(obj)["sentCount"], 3)
 	assertEq(t, "rms", len(rms), 2)
-	teams := s["byTeam"].([]any)
-	assertEq(t, "top team", teams[0].(obj)["name"], "Team Alpha")
-	assertEq(t, "top team amount", teams[0].(obj)["acceptedAmount"], 194.21)
+	top := rms[0].(obj)
+	assertEq(t, "top rm", top["user"].(obj)["name"], "Nok Rattana")
+	assertEq(t, "top rm quotes", top["quoteCount"], 4)
+	assertEq(t, "top rm sent", top["sentCount"], 3)
+	assertEq(t, "top rm pending", measure(top["pending"]), "1/194.21")
+	assertEq(t, "top team", s["byTeam"].([]any)[0].(obj)["name"], "Team Alpha")
+
+	cats := s["byCategory"].([]any)
+	assertEq(t, "categories", len(cats), 2)
+	assertEq(t, "top category", cats[0].(obj)["category"].(obj)["name"], "Services")
+	assertEq(t, "services won", measure(cats[0].(obj)["won"]), "1/192.6")
+	assertEq(t, "software pending", measure(cats[1].(obj)["pending"]), "1/1.61")
 
 	future := time.Now().UTC().AddDate(1, 0, 0).Format(dateLayout)
 	s = e.expect(200, "", "GET", "/api/v1/dashboard/summary?from="+future, woc, nil)
@@ -421,6 +441,42 @@ func TestDashboard(t *testing.T) {
 	assertEq(t, "future rate", s["conversionRate"], 0)
 	e.expect(400, "VALIDATION_ERROR", "GET", "/api/v1/dashboard/summary?from=2026-12-01&to=2026-01-01", woc, nil)
 	e.expect(400, "VALIDATION_ERROR", "GET", "/api/v1/dashboard/summary?from=yesterday", woc, nil)
+}
+
+func TestCategories(t *testing.T) {
+	e := newTestEnv(t)
+	adm, rm := e.as("demo@swiftquote.dev"), e.as("rm1@swiftquote.dev")
+
+	c := e.expect(201, "", "POST", "/api/v1/admin/categories", adm, obj{"name": " Training "})
+	assertEq(t, "trimmed", c["name"], "Training")
+	e.expect(409, "CONFLICT", "POST", "/api/v1/admin/categories", adm, obj{"name": "Software"})
+	e.expect(400, "VALIDATION_ERROR", "POST", "/api/v1/admin/categories", adm, obj{"name": ""})
+	e.expect(403, "FORBIDDEN", "POST", "/api/v1/admin/categories", rm, obj{"name": "X"})
+	e.expect(400, "VALIDATION_ERROR", "PUT", "/api/v1/admin/categories/"+catSoftware, adm, obj{"name": "Software"})
+	e.expect(404, "NOT_FOUND", "PUT", "/api/v1/admin/categories/00000000-0000-4000-8000-0000000000ff", adm,
+		obj{"name": "X", "active": true})
+
+	// Retiring a category keeps it listed but stops RMs from using it.
+	c = e.expect(200, "", "PUT", "/api/v1/admin/categories/"+catSoftware, adm, obj{"name": "Software", "active": false})
+	assertEq(t, "retired", c["active"], false)
+	var list []obj
+	e.do("GET", "/api/v1/categories", rm, nil, &list)
+	assertEq(t, "rm sees all categories", len(list), 4)
+	e.expect(403, "FORBIDDEN", "GET", "/api/v1/categories", e.as("wo@swiftquote.dev"), nil)
+
+	res := e.expect(400, "VALIDATION_ERROR", "POST", "/api/v1/quotes", rm, quoteBody("Q-CAT"))
+	assertEq(t, "retired detail", res["details"], []any{"items[1].categoryId is not an active category"})
+	body := quoteBody("Q-CAT")
+	body["items"] = []obj{{"title": "x", "quantity": 1, "unitPrice": 1}}
+	res = e.expect(400, "VALIDATION_ERROR", "POST", "/api/v1/quotes", rm, body)
+	assertEq(t, "missing detail", res["details"], []any{"items[0].categoryId is required"})
+
+	body = quoteBody("Q-CAT")
+	body["items"] = []obj{{"title": "Workshop", "categoryId": c["id"], "quantity": 1, "unitPrice": 10}}
+	e.expect(400, "VALIDATION_ERROR", "POST", "/api/v1/quotes", rm, body)
+	body["items"] = []obj{{"title": "Workshop", "categoryId": catServices, "quantity": 1, "unitPrice": 10}}
+	q := e.expect(201, "", "POST", "/api/v1/quotes", rm, body)
+	assertEq(t, "line category", q["items"].([]any)[0].(obj)["category"].(obj)["name"], "Services")
 }
 
 func TestErrorResponses(t *testing.T) {

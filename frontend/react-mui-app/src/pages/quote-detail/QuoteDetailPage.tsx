@@ -226,6 +226,9 @@ export function QuoteDetailPage() {
                 <TableRow key={i}>
                   <TableCell>
                     {it.title}
+                    <Typography variant="body2" color="text.secondary">
+                      {it.category?.name ?? 'Uncategorized'}
+                    </Typography>
                     {it.description && (
                       <Typography variant="body2" color="text.secondary">
                         {it.description}

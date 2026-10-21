@@ -25,6 +25,7 @@ import { calculate, formatMoney, toDecimal } from '../../pricing/pricing'
 interface Line {
   key: number
   title: string
+  categoryId: string
   description: string
   quantity: string
   unitPrice: string
@@ -36,6 +37,7 @@ let nextKey = 1
 const newLine = (): Line => ({
   key: nextKey++,
   title: '',
+  categoryId: '',
   description: '',
   quantity: '1',
   unitPrice: '',
@@ -59,6 +61,7 @@ export function QuoteBuilderPage() {
   const editing = id !== undefined
   const navigate = useNavigate()
   const [clients, setClients] = useState<Schemas['Client'][]>([])
+  const [categories, setCategories] = useState<Schemas['ProductCategory'][]>([])
   const [clientId, setClientId] = useState('')
   const [quoteNumber, setQuoteNumber] = useState(defaultQuoteNumber)
   const [today] = useState(() => isoDate(new Date()))
@@ -70,6 +73,10 @@ export function QuoteBuilderPage() {
   const [locked, setLocked] = useState<string | null>(null)
 
   useEffect(() => {
+    api.GET('/categories').then(({ data, error }) => {
+      if (!data) return setError(errorText(error, 'Could not load product categories'))
+      setCategories(data)
+    })
     api.GET('/clients').then(({ data, error }) => {
       if (!data) return setError(errorText(error, 'Could not load clients'))
       setClients(data)
@@ -90,6 +97,7 @@ export function QuoteBuilderPage() {
         data.items.map((it) => ({
           key: nextKey++,
           title: it.title,
+          categoryId: it.category?.id ?? '',
           description: it.description ?? '',
           quantity: String(it.quantity),
           unitPrice: String(it.unitPrice),
@@ -126,6 +134,7 @@ export function QuoteBuilderPage() {
       expiryDate,
       items: lines.map((l) => ({
         title: l.title,
+        categoryId: l.categoryId,
         ...(l.description.trim() ? { description: l.description } : {}),
         quantity: Number(l.quantity),
         unitPrice: Number(l.unitPrice),
@@ -208,6 +217,23 @@ export function QuoteBuilderPage() {
                     sx={{ flex: 3 }}
                     size="small"
                   />
+                  <TextField
+                    select
+                    label="Category"
+                    value={l.categoryId}
+                    onChange={(e) => update(l.key, 'categoryId', e.target.value)}
+                    required
+                    sx={{ flex: 2, minWidth: 140 }}
+                    size="small"
+                  >
+                    {categories
+                      .filter((c) => c.active || c.id === l.categoryId)
+                      .map((c) => (
+                        <MenuItem key={c.id} value={c.id} disabled={!c.active}>
+                          {c.active ? c.name : `${c.name} (retired)`}
+                        </MenuItem>
+                      ))}
+                  </TextField>
                   <TextField
                     label="Qty"
                     type="number"

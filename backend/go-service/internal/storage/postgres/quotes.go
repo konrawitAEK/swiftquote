@@ -113,12 +113,16 @@ func (s *Store) Replace(ctx context.Context, q *domain.Quote, ev quote.NewEvent)
 func insertItems(ctx context.Context, tx pgx.Tx, q *domain.Quote) error {
 	batch := &pgx.Batch{}
 	for i, it := range q.Items {
+		var categoryID *uuid.UUID
+		if it.Category != nil {
+			categoryID = &it.Category.ID
+		}
 		batch.Queue(`
 			INSERT INTO quote_items (id, quote_id, title, description, quantity, unit_price,
-				discount_percent, tax_percent, line_total, position)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+				discount_percent, tax_percent, line_total, position, category_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 			it.ID, q.ID, it.Title, it.Description, it.Quantity, it.UnitPrice,
-			it.DiscountPercent, it.TaxPercent, it.LineTotal, i,
+			it.DiscountPercent, it.TaxPercent, it.LineTotal, i, categoryID,
 		)
 	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
@@ -246,17 +250,22 @@ func (s *Store) Accept(ctx context.Context, id uuid.UUID, from []domain.QuoteSta
 
 func (s *Store) items(ctx context.Context, quoteID uuid.UUID) ([]domain.QuoteItem, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, title, COALESCE(description, ''), quantity, unit_price, discount_percent, tax_percent, line_total
-		FROM quote_items
-		WHERE quote_id = $1
-		ORDER BY position, id`, quoteID)
+		SELECT i.id, i.title, COALESCE(i.description, ''), i.quantity, i.unit_price, i.discount_percent,
+			i.tax_percent, i.line_total, c.id, c.name
+		FROM quote_items i
+		LEFT JOIN product_categories c ON c.id = i.category_id
+		WHERE i.quote_id = $1
+		ORDER BY i.position, i.id`, quoteID)
 	if err != nil {
 		return nil, fmt.Errorf("list quote items: %w", err)
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.QuoteItem, error) {
 		var it domain.QuoteItem
+		var categoryID *uuid.UUID
+		var categoryName *string
 		err := row.Scan(&it.ID, &it.Title, &it.Description, &it.Quantity, &it.UnitPrice,
-			&it.DiscountPercent, &it.TaxPercent, &it.LineTotal)
+			&it.DiscountPercent, &it.TaxPercent, &it.LineTotal, &categoryID, &categoryName)
+		it.Category = ref(categoryID, categoryName)
 		return it, err
 	})
 }

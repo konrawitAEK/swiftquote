@@ -58,6 +58,8 @@ type NewEvent struct {
 
 type Repository interface {
 	ClientExists(ctx context.Context, orgID, clientID uuid.UUID) (bool, error)
+	// ActiveCategoryIDs returns the ids of the tenant's active product categories.
+	ActiveCategoryIDs(ctx context.Context, orgID uuid.UUID) (map[uuid.UUID]bool, error)
 	// Create persists q, its items and ev; a duplicate number returns ErrDuplicateNumber.
 	Create(ctx context.Context, q *domain.Quote, ev NewEvent) error
 	// Replace overwrites a draft's fields and items; domain.ErrConflict if it is no longer a draft.
@@ -83,6 +85,7 @@ type CreateInput struct {
 
 type ItemInput struct {
 	Title           string
+	CategoryID      *uuid.UUID
 	Description     string
 	Quantity        *decimal.Decimal
 	UnitPrice       *decimal.Decimal
@@ -194,6 +197,9 @@ func (s *Service) validate(ctx context.Context, orgID uuid.UUID, in CreateInput)
 		verr.Add("expiryDate is required")
 	}
 	for i, it := range in.Items {
+		if it.CategoryID == nil {
+			verr.Add(fmt.Sprintf("items[%d].categoryId is required", i))
+		}
 		if it.Quantity == nil {
 			verr.Add(fmt.Sprintf("items[%d].quantity is required", i))
 		}
@@ -205,6 +211,10 @@ func (s *Service) validate(ctx context.Context, orgID uuid.UUID, in CreateInput)
 		return validated{}, err
 	}
 
+	categories, err := s.repo.ActiveCategoryIDs(ctx, orgID)
+	if err != nil {
+		return validated{}, err
+	}
 	v := validated{clientID: *in.ClientID, dealID: in.DealID, quoteNumber: strings.TrimSpace(in.QuoteNumber), expiryDate: *in.ExpiryDate}
 	if v.quoteNumber == "" {
 		verr.Add("quoteNumber is required")
@@ -216,9 +226,13 @@ func (s *Service) validate(ctx context.Context, orgID uuid.UUID, in CreateInput)
 		if strings.TrimSpace(it.Title) == "" {
 			verr.Add(fmt.Sprintf("items[%d].title is required", i))
 		}
+		if !categories[*it.CategoryID] {
+			verr.Add(fmt.Sprintf("items[%d].categoryId is not an active category", i))
+		}
 		v.items = append(v.items, domain.QuoteItem{
 			ID:              uuid.New(),
 			Title:           it.Title,
+			Category:        &domain.Ref{ID: *it.CategoryID},
 			Description:     it.Description,
 			Quantity:        *it.Quantity,
 			UnitPrice:       *it.UnitPrice,

@@ -1,5 +1,5 @@
 -- Test helper shared by the Go, Spring and Node suites: restore a migrated database to exactly the dev seed
--- (V2, V3, V6) after tests have created quotes, users and teams or edited the seeded ones.
+-- (V2, V3, V6, V8) after tests have created quotes, users and teams or edited the seeded ones.
 DELETE FROM quote_events;
 DELETE FROM quotes;
 DELETE FROM organization_members WHERE user_id NOT IN (
@@ -8,6 +8,9 @@ DELETE FROM organization_members WHERE user_id NOT IN (
     '00000000-0000-4000-8000-000000000013', '00000000-0000-4000-8000-000000000014',
     '00000000-0000-4000-8000-000000000015', '00000000-0000-4000-8000-000000000016',
     '00000000-0000-4000-8000-000000000017');
+DELETE FROM product_categories WHERE id NOT IN (
+    '00000000-0000-4000-8000-000000000030', '00000000-0000-4000-8000-000000000031',
+    '00000000-0000-4000-8000-000000000032');
 DELETE FROM teams WHERE id NOT IN ('00000000-0000-4000-8000-000000000020', '00000000-0000-4000-8000-000000000021');
 DELETE FROM users WHERE id NOT IN (
     '00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000010',
@@ -53,3 +56,11 @@ FROM (VALUES
     ('00000000-0000-4000-8000-000000000017'::uuid, 'customer', NULL, '00000000-0000-4000-8000-000000000004'::uuid)
 ) AS v(id, role, team, client)
 WHERE m.user_id = v.id;
+
+UPDATE product_categories c SET name = v.name, active = TRUE
+FROM (VALUES
+    ('00000000-0000-4000-8000-000000000030'::uuid, 'Software'),
+    ('00000000-0000-4000-8000-000000000031'::uuid, 'Services'),
+    ('00000000-0000-4000-8000-000000000032'::uuid, 'Hardware')
+) AS v(id, name)
+WHERE c.id = v.id;

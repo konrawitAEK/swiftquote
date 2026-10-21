@@ -38,6 +38,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List product categories, including inactive ones (rm, woc, admin)
+         * @description RMs may only use active categories on quote lines.
+         */
+        get: operations["listCategories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/quotes": {
         parameters: {
             query?: never;
@@ -205,7 +225,7 @@ export interface paths {
         };
         /**
          * Sales summary (woc)
-         * @description Covers quotes whose creation date (UTC) is within [from, to], both optional and inclusive. "Sent" counts quotes in sent, viewed, accepted or rejected. conversionRate = acceptedCount / sentCount rounded half-up to 4 decimals (0 when nothing was sent).
+         * @description Covers quotes whose creation date (UTC) is within [from, to], both optional and inclusive. Three measures are reported side by side so the client can switch views without refetching: won = accepted; pending = sent or viewed and not yet expired (waiting on the customer); inApproval = pending_approval or approved (not yet with the customer). "Sent" counts quotes in sent, viewed, accepted or rejected. conversionRate = won.count / sentCount rounded half-up to 4 decimals (0 when nothing was sent). Amounts are grand totals incl. VAT; category amounts are line total plus that line's VAT, so categories add up to grand totals.
          */
         get: operations["getDashboardSummary"];
         put?: never;
@@ -286,6 +306,42 @@ export interface paths {
         get?: never;
         /** Rename a team or change its WO (admin) */
         put: operations["updateTeam"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add a product category (admin) */
+        post: operations["createCategory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/categories/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Rename a category or retire it (admin); retired categories stay on existing quotes */
+        put: operations["updateCategory"];
         post?: never;
         delete?: never;
         options?: never;
@@ -391,8 +447,26 @@ export interface components {
             /** Format: email */
             email?: string | null;
         };
+        ProductCategory: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            active: boolean;
+        };
+        CreateCategoryRequest: {
+            name: string;
+        };
+        UpdateCategoryRequest: {
+            name: string;
+            active: boolean;
+        };
         QuoteItemInput: {
             title: string;
+            /**
+             * Format: uuid
+             * @description an active product category
+             */
+            categoryId: string;
             description?: string;
             quantity: number;
             unitPrice: number;
@@ -427,6 +501,8 @@ export interface components {
         };
         QuoteItemView: {
             title: string;
+            /** @description null for lines created before categories existed */
+            category: components["schemas"]["UserRef"] | null;
             description: string | null;
             quantity: number;
             unitPrice: number;
@@ -485,13 +561,18 @@ export interface components {
             /** @description Base64 canvas image */
             signatureDataUrl: string;
         };
+        Measure: {
+            count: number;
+            amount: number;
+        };
         DashboardSummary: {
             /** Format: date */
             from: string | null;
             /** Format: date */
             to: string | null;
-            acceptedAmount: number;
-            acceptedCount: number;
+            won: components["schemas"]["Measure"];
+            pending: components["schemas"]["Measure"];
+            inApproval: components["schemas"]["Measure"];
             sentCount: number;
             /** @description 0 to 1, 4 decimals */
             conversionRate: number;
@@ -501,29 +582,35 @@ export interface components {
                 count: number;
                 amount: number;
             }[];
-            /** @description Accepted quotes grouped by the UTC month they were signed, ascending; months without sales are omitted */
+            /** @description UTC months ascending. won is grouped by the month the customer signed, pending by the month the quote expires (when it must close). Months with neither are omitted. */
             byMonth: {
                 /** @example 2026-10 */
                 month: string;
-                acceptedCount: number;
-                acceptedAmount: number;
+                won: components["schemas"]["Measure"];
+                pending: components["schemas"]["Measure"];
             }[];
-            /** @description Every RM with at least one quote in range, by acceptedAmount desc then name */
+            /** @description Every RM with at least one quote in range, by won amount desc then name */
             byRm: {
                 user: components["schemas"]["UserRef"];
                 team: string | null;
                 quoteCount: number;
                 sentCount: number;
-                acceptedCount: number;
-                acceptedAmount: number;
+                won: components["schemas"]["Measure"];
+                pending: components["schemas"]["Measure"];
             }[];
-            /** @description Every team, by acceptedAmount desc then name; counts quotes of its current RMs */
+            /** @description Every team, by won amount desc then name; counts quotes of its current RMs */
             byTeam: {
                 /** Format: uuid */
                 id: string;
                 name: string;
-                acceptedCount: number;
-                acceptedAmount: number;
+                won: components["schemas"]["Measure"];
+                pending: components["schemas"]["Measure"];
+            }[];
+            /** @description Every category with won or pending lines in range, by won amount desc then name; null category (lines created before categories existed) last. count is the number of quote lines. */
+            byCategory: {
+                category: components["schemas"]["UserRef"] | null;
+                won: components["schemas"]["Measure"];
+                pending: components["schemas"]["Measure"];
             }[];
         };
         AdminUser: {
@@ -712,6 +799,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Client"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listCategories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Categories ordered by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductCategory"][];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -1135,6 +1244,65 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Team"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    createCategory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCategoryRequest"];
+            };
+        };
+        responses: {
+            /** @description Category created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductCategory"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateCategory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCategoryRequest"];
+            };
+        };
+        responses: {
+            /** @description Category updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductCategory"];
                 };
             };
             400: components["responses"]["BadRequest"];

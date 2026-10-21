@@ -65,6 +65,7 @@ type QuoteEvent struct {
 type QuoteItem struct {
 	ID              uuid.UUID
 	Title           string
+	Category        *Ref // nil for lines created before categories existed
 	Description     string
 	Quantity        decimal.Decimal
 	UnitPrice       decimal.Decimal

@@ -8,7 +8,7 @@ info:
 
     Roles (one per user, read from the database on every request so changes apply immediately):
 
-    - admin: manages users and team structure only; no access to quotes or the dashboard.
+    - admin: manages users, team structure and product categories only; no access to quotes or the dashboard.
 
     - rm: creates and edits their own quotes, submits them for approval, and sends approved quotes.
 
@@ -43,8 +43,10 @@ tags:
     description: Role-scoped quotation management and approval workflow
   - name: Dashboard
     description: Sales summary for WOC
+  - name: Catalog
+    description: Product categories used to classify quote lines
   - name: Admin
-    description: Users and team structure (admin only)
+    description: Users, team structure and product categories (admin only)
   - name: ClientPortal
     description: Public, token-based quote access for customers
 
@@ -90,6 +92,26 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+
+  /categories:
+    get:
+      summary: List product categories, including inactive ones (rm, woc, admin)
+      description: RMs may only use active categories on quote lines.
+      operationId: listCategories
+      tags: [Catalog]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Categories ordered by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProductCategory'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /quotes:
     get:
@@ -333,8 +355,12 @@ paths:
       summary: Sales summary (woc)
       description: >-
         Covers quotes whose creation date (UTC) is within [from, to], both optional and inclusive.
-        "Sent" counts quotes in sent, viewed, accepted or rejected. conversionRate = acceptedCount / sentCount
-        rounded half-up to 4 decimals (0 when nothing was sent).
+        Three measures are reported side by side so the client can switch views without refetching:
+        won = accepted; pending = sent or viewed and not yet expired (waiting on the customer);
+        inApproval = pending_approval or approved (not yet with the customer).
+        "Sent" counts quotes in sent, viewed, accepted or rejected. conversionRate = won.count / sentCount
+        rounded half-up to 4 decimals (0 when nothing was sent). Amounts are grand totals incl. VAT;
+        category amounts are line total plus that line's VAT, so categories add up to grand totals.
       operationId: getDashboardSummary
       tags: [Dashboard]
       security:
@@ -499,6 +525,62 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Team'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/categories:
+    post:
+      summary: Add a product category (admin)
+      operationId: createCategory
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryRequest'
+      responses:
+        '201':
+          description: Category created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductCategory'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/categories/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      summary: Rename a category or retire it (admin); retired categories stay on existing quotes
+      operationId: updateCategory
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCategoryRequest'
+      responses:
+        '200':
+          description: Category updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductCategory'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -681,11 +763,33 @@ components:
         name: { type: string }
         email: { type: string, format: email, nullable: true }
 
+    ProductCategory:
+      type: object
+      required: [id, name, active]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        active: { type: boolean }
+
+    CreateCategoryRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+
+    UpdateCategoryRequest:
+      type: object
+      required: [name, active]
+      properties:
+        name: { type: string }
+        active: { type: boolean }
+
     QuoteItemInput:
       type: object
-      required: [title, quantity, unitPrice]
+      required: [title, categoryId, quantity, unitPrice]
       properties:
         title: { type: string }
+        categoryId: { type: string, format: uuid, description: "an active product category" }
         description: { type: string }
         quantity: { type: number, minimum: 1 }
         unitPrice: { type: number, minimum: 0 }
@@ -726,9 +830,13 @@ components:
 
     QuoteItemView:
       type: object
-      required: [title, description, quantity, unitPrice, discountPercent, taxPercent, lineTotal]
+      required: [title, category, description, quantity, unitPrice, discountPercent, taxPercent, lineTotal]
       properties:
         title: { type: string }
+        category:
+          description: null for lines created before categories existed
+          allOf: [{ $ref: '#/components/schemas/UserRef' }]
+          nullable: true
         description: { type: string, nullable: true }
         quantity: { type: number }
         unitPrice: { type: number }
@@ -802,14 +910,22 @@ components:
         signerName: { type: string }
         signatureDataUrl: { type: string, description: "Base64 canvas image" }
 
+    Measure:
+      type: object
+      required: [count, amount]
+      properties:
+        count: { type: integer }
+        amount: { type: number }
+
     DashboardSummary:
       type: object
-      required: [from, to, acceptedAmount, acceptedCount, sentCount, conversionRate, byStatus, byMonth, byRm, byTeam]
+      required: [from, to, won, pending, inApproval, sentCount, conversionRate, byStatus, byMonth, byRm, byTeam, byCategory]
       properties:
         from: { type: string, format: date, nullable: true }
         to: { type: string, format: date, nullable: true }
-        acceptedAmount: { type: number }
-        acceptedCount: { type: integer }
+        won: { $ref: '#/components/schemas/Measure' }
+        pending: { $ref: '#/components/schemas/Measure' }
+        inApproval: { $ref: '#/components/schemas/Measure' }
         sentCount: { type: integer }
         conversionRate: { type: number, description: "0 to 1, 4 decimals" }
         byStatus:
@@ -823,39 +939,55 @@ components:
               count: { type: integer }
               amount: { type: number }
         byMonth:
-          description: Accepted quotes grouped by the UTC month they were signed, ascending; months without sales are omitted
+          description: >-
+            UTC months ascending. won is grouped by the month the customer signed, pending by the month the
+            quote expires (when it must close). Months with neither are omitted.
           type: array
           items:
             type: object
-            required: [month, acceptedCount, acceptedAmount]
+            required: [month, won, pending]
             properties:
               month: { type: string, example: "2026-10" }
-              acceptedCount: { type: integer }
-              acceptedAmount: { type: number }
+              won: { $ref: '#/components/schemas/Measure' }
+              pending: { $ref: '#/components/schemas/Measure' }
         byRm:
-          description: Every RM with at least one quote in range, by acceptedAmount desc then name
+          description: Every RM with at least one quote in range, by won amount desc then name
           type: array
           items:
             type: object
-            required: [user, team, quoteCount, sentCount, acceptedCount, acceptedAmount]
+            required: [user, team, quoteCount, sentCount, won, pending]
             properties:
               user: { $ref: '#/components/schemas/UserRef' }
               team: { type: string, nullable: true }
               quoteCount: { type: integer }
               sentCount: { type: integer }
-              acceptedCount: { type: integer }
-              acceptedAmount: { type: number }
+              won: { $ref: '#/components/schemas/Measure' }
+              pending: { $ref: '#/components/schemas/Measure' }
         byTeam:
-          description: Every team, by acceptedAmount desc then name; counts quotes of its current RMs
+          description: Every team, by won amount desc then name; counts quotes of its current RMs
           type: array
           items:
             type: object
-            required: [id, name, acceptedCount, acceptedAmount]
+            required: [id, name, won, pending]
             properties:
               id: { type: string, format: uuid }
               name: { type: string }
-              acceptedCount: { type: integer }
-              acceptedAmount: { type: number }
+              won: { $ref: '#/components/schemas/Measure' }
+              pending: { $ref: '#/components/schemas/Measure' }
+        byCategory:
+          description: >-
+            Every category with won or pending lines in range, by won amount desc then name; null category
+            (lines created before categories existed) last. count is the number of quote lines.
+          type: array
+          items:
+            type: object
+            required: [category, won, pending]
+            properties:
+              category:
+                allOf: [{ $ref: '#/components/schemas/UserRef' }]
+                nullable: true
+              won: { $ref: '#/components/schemas/Measure' }
+              pending: { $ref: '#/components/schemas/Measure' }
 
     AdminUser:
       type: object
