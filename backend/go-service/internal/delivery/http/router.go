@@ -11,11 +11,13 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/auth"
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/client"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/quote"
 )
 
 type Deps struct {
 	Auth        *auth.Service
+	Clients     *client.Service
 	Quotes      *quote.Service
 	CORSOrigins string
 	// Storage names the active backing store for /healthz; Ping checks it.
@@ -40,9 +42,10 @@ func NewRouter(d Deps) *fiber.App {
 		return c.JSON(fiber.Map{"status": "ok", "storage": d.Storage})
 	})
 
-	h := &handlers{auth: d.Auth, quotes: d.Quotes}
+	h := &handlers{auth: d.Auth, clients: d.Clients, quotes: d.Quotes}
 	api := app.Group("/api/v1")
 	api.Post("/auth/login", h.login)
+	api.Get("/clients", h.requireAuth, h.listClients)
 	api.Get("/quotes", h.requireAuth, h.listQuotes)
 	api.Post("/quotes", h.requireAuth, h.createQuote)
 	api.Get("/public/quotes/:accessToken", h.getPublicQuote)

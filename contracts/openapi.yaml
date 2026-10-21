@@ -13,6 +13,8 @@ servers:
 tags:
   - name: Auth
     description: Authentication and session issuance
+  - name: Clients
+    description: Tenant-scoped client directory
   - name: Quotes
     description: Tenant-scoped quotation management
   - name: ClientPortal
@@ -37,6 +39,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /clients:
+    get:
+      summary: List clients for current tenant
+      operationId: listClients
+      tags: [Clients]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Clients of the current tenant, ordered by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Client'
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -211,6 +232,14 @@ components:
             id: { type: string, format: uuid }
             name: { type: string }
             role: { type: string, enum: [owner, manager, member] }
+
+    Client:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email, nullable: true }
 
     QuoteItemInput:
       type: object

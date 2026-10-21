@@ -12,6 +12,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/auth"
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/client"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/domain"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/quote"
 )
@@ -21,8 +22,9 @@ const principalKey = "principal"
 var defaultTaxPercent = decimal.NewFromInt(7)
 
 type handlers struct {
-	auth   *auth.Service
-	quotes *quote.Service
+	auth    *auth.Service
+	clients *client.Service
+	quotes  *quote.Service
 }
 
 // requireAuth validates the bearer token and stores the auth.Principal in locals.
@@ -67,6 +69,14 @@ func (h *handlers) login(c *fiber.Ctx) error {
 		TenantID:    res.Membership.OrganizationID,
 		User:        authUser{ID: res.User.ID, Name: res.User.FullName, Role: res.Membership.Role},
 	})
+}
+
+func (h *handlers) listClients(c *fiber.Ctx) error {
+	cs, err := h.clients.List(c.UserContext(), principal(c).TenantID)
+	if err != nil {
+		return err
+	}
+	return c.JSON(toClientViews(cs))
 }
 
 func (h *handlers) listQuotes(c *fiber.Ctx) error {

@@ -53,6 +53,12 @@ type authResponse struct {
 	User        authUser  `json:"user"`
 }
 
+type clientView struct {
+	ID    uuid.UUID `json:"id"`
+	Name  string    `json:"name"`
+	Email *string   `json:"email"`
+}
+
 type quoteItemInput struct {
 	Title           string           `json:"title"`
 	Description     string           `json:"description"`
@@ -116,6 +122,17 @@ type errorResponse struct {
 	Code    string   `json:"code"`
 	Message string   `json:"message"`
 	Details []string `json:"details,omitempty"`
+}
+
+func toClientViews(cs []domain.Client) []clientView {
+	out := make([]clientView, len(cs))
+	for i, c := range cs {
+		out[i] = clientView{ID: c.ID, Name: c.Name}
+		if c.Email != "" {
+			out[i].Email = &c.Email
+		}
+	}
+	return out
 }
 
 func toItemViews(items []domain.QuoteItem) []quoteItemView {

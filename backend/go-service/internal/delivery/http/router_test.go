@@ -16,6 +16,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/auth"
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/client"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/domain"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/quote"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/storage/memory"
@@ -24,6 +25,7 @@ import (
 
 type testStore interface {
 	auth.Repository
+	client.Repository
 	quote.Repository
 	PutOrganization(context.Context, domain.Organization) error
 	PutUser(context.Context, domain.User, domain.Membership) error
@@ -86,6 +88,7 @@ func newTestEnv(t *testing.T, store testStore) *testEnv {
 	t.Helper()
 	app := NewRouter(Deps{
 		Auth:        auth.NewService(store, "test-secret"),
+		Clients:     client.NewService(store),
 		Quotes:      quote.NewService(store),
 		CORSOrigins: "*",
 		Storage:     "memory",
@@ -167,6 +170,13 @@ func TestQuoteLifecycle(t *testing.T) {
 		}
 		accessToken := created["accessToken"].(string)
 
+		var clients []map[string]any
+		if s := e.do("GET", "/api/v1/clients", token, nil, &clients); s != 200 || len(clients) != 1 {
+			t.Fatalf("clients status %d, %d rows", s, len(clients))
+		}
+		assertJSON(t, clients[0], "name", "Acme Corporation")
+		assertJSON(t, clients[0], "email", "buyer@acme.example")
+
 		var list []map[string]any
 		if s := e.do("GET", "/api/v1/quotes", token, nil, &list); s != 200 || len(list) != 1 {
 			t.Fatalf("list status %d, %d rows", s, len(list))
@@ -233,6 +243,7 @@ func TestErrorResponses(t *testing.T) {
 			{"wrong password", "POST", "/api/v1/auth/login", "", map[string]string{"email": memory.DemoEmail, "password": "nope"}, 401, "UNAUTHORIZED"},
 			{"unknown email", "POST", "/api/v1/auth/login", "", map[string]string{"email": "x@y.z", "password": "password"}, 401, "UNAUTHORIZED"},
 			{"list without token", "GET", "/api/v1/quotes", "", nil, 401, "UNAUTHORIZED"},
+			{"clients without token", "GET", "/api/v1/clients", "", nil, 401, "UNAUTHORIZED"},
 			{"list with bad token", "GET", "/api/v1/quotes", "garbage", nil, 401, "UNAUTHORIZED"},
 			{"invalid status filter", "GET", "/api/v1/quotes?status=bogus", token, nil, 400, "VALIDATION_ERROR"},
 			{"create without token", "POST", "/api/v1/quotes", "", validQuoteBody("Q-X"), 401, "UNAUTHORIZED"},
@@ -285,9 +296,14 @@ func TestQuotesAreTenantScoped(t *testing.T) {
 
 		var res map[string]any
 		e.do("POST", "/api/v1/auth/login", "", map[string]string{"email": "other@example.com", "password": memory.DemoPassword}, &res)
+		otherToken := res["accessToken"].(string)
 		var list []map[string]any
-		if s := e.do("GET", "/api/v1/quotes", res["accessToken"].(string), nil, &list); s != 200 || len(list) != 0 {
+		if s := e.do("GET", "/api/v1/quotes", otherToken, nil, &list); s != 200 || len(list) != 0 {
 			t.Fatalf("other tenant sees %d quotes (status %d), want 0", len(list), s)
+		}
+		var clients []map[string]any
+		if s := e.do("GET", "/api/v1/clients", otherToken, nil, &clients); s != 200 || len(clients) != 0 {
+			t.Fatalf("other tenant sees %d clients (status %d), want 0", len(clients), s)
 		}
 	})
 }

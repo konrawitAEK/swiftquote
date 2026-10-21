@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/auth"
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/client"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/config"
 	httpdelivery "github.com/konrawitAEK/swiftquote/backend/go-service/internal/delivery/http"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/quote"
@@ -25,6 +26,7 @@ func main() {
 
 	var store interface {
 		auth.Repository
+		client.Repository
 		quote.Repository
 	}
 	ping := func(context.Context) error { return nil }
@@ -47,6 +49,7 @@ func main() {
 
 	app := httpdelivery.NewRouter(httpdelivery.Deps{
 		Auth:        auth.NewService(store, cfg.JWTSecret),
+		Clients:     client.NewService(store),
 		Quotes:      quote.NewService(store),
 		CORSOrigins: cfg.CORSOrigins,
 		Storage:     cfg.Storage,
