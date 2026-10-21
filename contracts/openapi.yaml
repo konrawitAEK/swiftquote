@@ -13,6 +13,8 @@ servers:
 tags:
   - name: Auth
     description: Authentication and session issuance
+  - name: Clients
+    description: Tenant-scoped client directory
   - name: Quotes
     description: Tenant-scoped quotation management
   - name: ClientPortal
@@ -37,6 +39,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /clients:
+    get:
+      summary: List clients for current tenant
+      operationId: listClients
+      tags: [Clients]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Clients of the current tenant, ordered by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Client'
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -90,6 +111,32 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '409':
           $ref: '#/components/responses/Conflict'
+
+  /quotes/{id}:
+    get:
+      summary: Get one quotation of the current tenant, including its share token
+      operationId: getQuote
+      tags: [Quotes]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Quotation detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuoteDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/QuoteNotFound'
 
   /public/quotes/{accessToken}:
     get:
@@ -168,6 +215,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    QuoteNotFound:
+      description: No quotation with this id in the current tenant (also returned for malformed ids)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
     Conflict:
       description: Duplicate quoteNumber within the tenant, or quote can no longer be accepted
       content:
@@ -212,6 +265,14 @@ components:
             name: { type: string }
             role: { type: string, enum: [owner, manager, member] }
 
+    Client:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email, nullable: true }
+
     QuoteItemInput:
       type: object
       required: [title, quantity, unitPrice]
@@ -249,16 +310,18 @@ components:
 
     QuoteDetail:
       type: object
-      required: [id, quoteNumber, status, subtotal, discountAmount, taxAmount, grandTotal, items]
+      required: [id, quoteNumber, status, expiryDate, subtotal, discountAmount, taxAmount, grandTotal, items]
       properties:
         id: { type: string, format: uuid }
         quoteNumber: { type: string }
         status: { $ref: '#/components/schemas/QuoteStatus' }
+        expiryDate: { type: string, format: date }
         subtotal: { type: number }
         discountAmount: { type: number }
         taxAmount: { type: number }
         grandTotal: { type: number }
         accessToken: { type: string, format: uuid }
+        signedBy: { type: string, nullable: true }
         signedAt: { type: string, format: date-time, nullable: true }
         items:
           type: array
@@ -272,9 +335,13 @@ components:
 
     PublicQuoteView:
       type: object
-      required: [quoteNumber, vendorName, grandTotal, items]
+      required: [quoteNumber, status, expiryDate, vendorName, grandTotal, items]
       properties:
         quoteNumber: { type: string }
+        status: { $ref: '#/components/schemas/QuoteStatus' }
+        expiryDate: { type: string, format: date }
+        signedBy: { type: string, nullable: true }
+        signedAt: { type: string, format: date-time, nullable: true }
         vendorName: { type: string }
         vendorLogo: { type: string, nullable: true }
         grandTotal: { type: number }

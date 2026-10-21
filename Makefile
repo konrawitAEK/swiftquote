@@ -2,7 +2,7 @@
 
 help:
 	@echo "SwiftQuote Polyglot Commands:"
-	@echo "  make gen-types           - Generate TypeScript interfaces from openapi.yaml"
+	@echo "  make gen-types           - Generate TypeScript API types from openapi.yaml"
 	@echo "  make run-go              - Go Backend + Postgres only (API on :8080)"
 	@echo "  make smoke               - End-to-end API smoke test against :8080"
 	@echo "  make test-go             - Vet and test the Go backend (+ Postgres if running)"
@@ -13,11 +13,11 @@ help:
 	@echo "  make run-spring-angular  - Spring Boot Backend + Angular App"
 	@echo "  make stop                - Shut down all running containers"
 
+OPENAPI_TS := npx --yes openapi-typescript@7.13.0
+
+# Generated types are committed; CI fails if they drift from the contract.
 gen-types:
-	npx --yes @openapitools/openapi-generator-cli generate \
-		-i contracts/openapi.yaml \
-		-g typescript-axios \
-		-o frontend/shared-contract-client
+	$(OPENAPI_TS) contracts/openapi.yaml -o frontend/react-mui-app/src/api/schema.d.ts
 
 TEST_DB := swiftquote_test
 TEST_DATABASE_URL ?= postgres://postgres:password@localhost:5432/$(TEST_DB)?sslmode=disable

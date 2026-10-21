@@ -73,6 +73,20 @@ func (s *Store) FindLogin(_ context.Context, email string) (domain.User, domain.
 	return domain.User{}, domain.Membership{}, domain.ErrNotFound
 }
 
+// ListClients implements client.Repository.
+func (s *Store) ListClients(_ context.Context, orgID uuid.UUID) ([]domain.Client, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.Client{}
+	for _, c := range s.clients {
+		if c.OrganizationID == orgID {
+			out = append(out, c)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
 // The methods below implement quote.Repository.
 
 func (s *Store) ClientBelongsTo(_ context.Context, orgID, clientID uuid.UUID) (bool, error) {
@@ -117,6 +131,16 @@ func (s *Store) List(_ context.Context, orgID uuid.UUID, status *domain.QuoteSta
 		})
 	}
 	return out, nil
+}
+
+func (s *Store) Get(_ context.Context, orgID, id uuid.UUID) (domain.Quote, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	q, ok := s.quotes[id]
+	if !ok || q.OrganizationID != orgID {
+		return domain.Quote{}, domain.ErrNotFound
+	}
+	return cloneQuote(q), nil
 }
 
 func (s *Store) GetPublic(_ context.Context, accessToken uuid.UUID) (quote.PublicView, error) {

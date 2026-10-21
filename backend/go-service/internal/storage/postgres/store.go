@@ -64,6 +64,23 @@ func (s *Store) FindLogin(ctx context.Context, email string) (domain.User, domai
 	return u, m, nil
 }
 
+// ListClients implements client.Repository.
+func (s *Store) ListClients(ctx context.Context, orgID uuid.UUID) ([]domain.Client, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, organization_id, name, COALESCE(email, '')
+		FROM clients
+		WHERE organization_id = $1
+		ORDER BY name, id`, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("list clients: %w", err)
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.Client, error) {
+		var c domain.Client
+		err := row.Scan(&c.ID, &c.OrganizationID, &c.Name, &c.Email)
+		return c, err
+	})
+}
+
 // The methods below implement quote.Repository.
 
 func (s *Store) ClientBelongsTo(ctx context.Context, orgID, clientID uuid.UUID) (bool, error) {
@@ -157,6 +174,23 @@ func scanQuote(row pgx.Row, extra ...any) (domain.Quote, error) {
 	if q.SignedAt != nil {
 		t := q.SignedAt.UTC()
 		q.SignedAt = &t
+	}
+	return q, nil
+}
+
+func (s *Store) Get(ctx context.Context, orgID, id uuid.UUID) (domain.Quote, error) {
+	q, err := scanQuote(s.pool.QueryRow(ctx, `
+		SELECT `+quoteColumns+`
+		FROM quotes q
+		WHERE q.id = $1 AND q.organization_id = $2`, id, orgID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Quote{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Quote{}, fmt.Errorf("get quote: %w", err)
+	}
+	if q.Items, err = s.items(ctx, q.ID); err != nil {
+		return domain.Quote{}, err
 	}
 	return q, nil
 }
