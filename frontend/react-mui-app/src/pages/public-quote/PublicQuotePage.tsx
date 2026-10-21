@@ -18,9 +18,9 @@ import {
 } from '@mui/material'
 import { useEffect, useState, type FormEvent } from 'react'
 import { useParams } from 'react-router-dom'
-import { api, errorText, type Schemas } from '../api/client'
-import { SignaturePad } from '../components/SignaturePad'
-import { formatMoney } from '../pricing/pricing'
+import { api, errorText, type Schemas } from '../../api/client'
+import { SignaturePad } from '../../components/SignaturePad'
+import { formatMoney } from '../../pricing/pricing'
 
 type LoadState =
   | { kind: 'loading' }

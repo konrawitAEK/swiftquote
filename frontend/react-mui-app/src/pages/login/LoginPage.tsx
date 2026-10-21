@@ -1,8 +1,8 @@
 import { Alert, Box, Button, Card, CardContent, Chip, Stack, TextField, Typography } from '@mui/material'
 import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
-import { useAuth } from '../auth/auth'
-import { homePath } from '../auth/roles'
+import { useAuth } from '../../auth/auth'
+import { homePath } from '../../auth/roles'
 
 // Seeded by db/migrations/V6__seed_dev_roles.sql; all use the password "password".
 const DEV_ACCOUNTS = [

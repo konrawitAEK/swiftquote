@@ -18,11 +18,11 @@ import {
 } from '@mui/material'
 import { useEffect, useState } from 'react'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
-import { api, errorText, type QuoteStatus, type Role, type Schemas } from '../api/client'
-import { useAuth } from '../auth/auth'
-import { STATUS_LABELS } from '../auth/roles'
-import { StatusChip } from '../components/StatusChip'
-import { formatMoney } from '../pricing/pricing'
+import { api, errorText, type QuoteStatus, type Role, type Schemas } from '../../api/client'
+import { useAuth } from '../../auth/auth'
+import { STATUS_LABELS } from '../../auth/roles'
+import { StatusChip } from '../../components/StatusChip'
+import { formatMoney } from '../../pricing/pricing'
 
 const STATUSES: QuoteStatus[] = ['draft', 'pending_approval', 'approved', 'sent', 'viewed', 'accepted', 'rejected']
 const CUSTOMER_STATUSES: QuoteStatus[] = ['sent', 'viewed', 'accepted', 'rejected']

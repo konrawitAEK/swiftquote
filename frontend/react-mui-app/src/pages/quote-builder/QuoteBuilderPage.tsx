@@ -18,9 +18,9 @@ import {
 } from '@mui/material'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
-import { api, errorText, type Schemas } from '../api/client'
-import { TotalRow } from '../components/TotalRow'
-import { calculate, formatMoney, toDecimal } from '../pricing/pricing'
+import { api, errorText, type Schemas } from '../../api/client'
+import { TotalRow } from '../../components/TotalRow'
+import { calculate, formatMoney, toDecimal } from '../../pricing/pricing'
 
 interface Line {
   key: number

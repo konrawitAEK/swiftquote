@@ -17,9 +17,9 @@ import {
   Typography,
 } from '@mui/material'
 import { useEffect, useState } from 'react'
-import { api, errorText, type Schemas } from '../api/client'
-import { StatusChip } from '../components/StatusChip'
-import { formatMoney } from '../pricing/pricing'
+import { api, errorText, type Schemas } from '../../api/client'
+import { StatusChip } from '../../components/StatusChip'
+import { formatMoney } from '../../pricing/pricing'
 
 type Summary = Schemas['DashboardSummary']
 

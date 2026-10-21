@@ -1,5 +1,5 @@
 import { Box, Stack, Typography } from '@mui/material'
-import type { Schemas } from '../api/client'
+import type { Schemas } from '../../api/client'
 
 type Event = Schemas['QuoteEvent']
 

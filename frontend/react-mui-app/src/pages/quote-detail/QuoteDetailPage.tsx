@@ -23,16 +23,16 @@ import {
 } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
 import { Link as RouterLink, useParams } from 'react-router-dom'
-import { api, errorText, type Role, type Schemas } from '../api/client'
-import { useAuth } from '../auth/auth'
-import { SENT_STATUSES } from '../auth/roles'
-import { QuoteHistory } from '../components/QuoteHistory'
-import { ShareLink } from '../components/ShareLink'
-import { shareUrl } from '../components/shareUrl'
-import { SignaturePad } from '../components/SignaturePad'
-import { StatusChip } from '../components/StatusChip'
-import { TotalRow } from '../components/TotalRow'
-import { formatMoney } from '../pricing/pricing'
+import { api, errorText, type Role, type Schemas } from '../../api/client'
+import { useAuth } from '../../auth/auth'
+import { SENT_STATUSES } from '../../auth/roles'
+import { AcceptCard } from './AcceptCard'
+import { QuoteHistory } from './QuoteHistory'
+import { ShareLink } from './ShareLink'
+import { shareUrl } from './shareUrl'
+import { StatusChip } from '../../components/StatusChip'
+import { TotalRow } from '../../components/TotalRow'
+import { formatMoney } from '../../pricing/pricing'
 
 type Quote = Schemas['QuoteDetail']
 type CommentAction = 'submit' | 'approve' | 'return' | 'reject'
@@ -294,29 +294,5 @@ export function QuoteDetailPage() {
         </DialogActions>
       </Dialog>
     </Stack>
-  )
-}
-
-function AcceptCard({ busy, onAccept }: { busy: boolean; onAccept: (body: Schemas['AcceptQuoteRequest']) => void }) {
-  const [signerName, setSignerName] = useState('')
-  const [signature, setSignature] = useState<string | null>(null)
-  return (
-    <Card>
-      <CardContent>
-        <Stack spacing={2}>
-          <Typography variant="h6">Accept this quotation</Typography>
-          <TextField label="Your full name" value={signerName} onChange={(e) => setSignerName(e.target.value)} required fullWidth />
-          <SignaturePad onChange={setSignature} disabled={busy} />
-          <Button
-            variant="contained"
-            size="large"
-            disabled={busy || !signature || signerName.trim() === ''}
-            onClick={() => signature && onAccept({ signerName, signatureDataUrl: signature })}
-          >
-            {busy ? 'Submitting…' : 'Sign and accept'}
-          </Button>
-        </Stack>
-      </CardContent>
-    </Card>
   )
 }
