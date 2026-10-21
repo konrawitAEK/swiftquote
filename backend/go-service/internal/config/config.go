@@ -12,15 +12,23 @@ type Config struct {
 	Port        string
 	DatabaseURL string
 	JWTSecret   string
+	// Storage selects the repository implementation: "memory" (default) or "postgres".
+	Storage     string
+	CORSOrigins string
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		Port:      getenv("PORT", "8080"),
-		JWTSecret: os.Getenv("JWT_SECRET"),
+		Port:        getenv("PORT", "8080"),
+		JWTSecret:   os.Getenv("JWT_SECRET"),
+		Storage:     getenv("STORAGE", "memory"),
+		CORSOrigins: getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001,http://localhost:3002"),
 	}
 	if cfg.JWTSecret == "" {
 		return Config{}, errors.New("JWT_SECRET is required")
+	}
+	if cfg.Storage != "memory" && cfg.Storage != "postgres" {
+		return Config{}, fmt.Errorf("STORAGE must be memory or postgres, got %q", cfg.Storage)
 	}
 
 	dsn := url.URL{

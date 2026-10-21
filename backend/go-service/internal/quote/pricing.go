@@ -45,7 +45,7 @@ func Calculate(items []domain.QuoteItem) (Totals, error) {
 	for i := range items {
 		it := &items[i]
 		if err := validate(it); err != nil {
-			return Totals{}, fmt.Errorf("item %d: %w", i, err)
+			return Totals{}, fmt.Errorf("items[%d]: %w", i, err)
 		}
 
 		gross := it.Quantity.Mul(it.UnitPrice).Round(moneyPlaces)

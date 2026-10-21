@@ -61,6 +61,10 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/QuoteSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
     post:
       summary: Create quotation with real-time recalculation
       operationId: createQuote
@@ -82,6 +86,10 @@ paths:
                 $ref: '#/components/schemas/QuoteDetail'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
   /public/quotes/{accessToken}:
     get:
@@ -103,7 +111,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PublicQuoteView'
         '404':
-          description: Quote expired or not found
+          $ref: '#/components/responses/NotFound'
 
   /public/quotes/{accessToken}/accept:
     post:
@@ -130,6 +138,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QuoteDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
 components:
   securitySchemes:
@@ -137,10 +151,25 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: >-
+        HS256 signed with the shared JWT_SECRET so tokens work against either backend.
+        Claims: sub (user id), tid (tenant/organization id), role, iat, exp (24h).
 
   responses:
     Unauthorized:
       description: Authentication failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Quote expired or not found (also returned for malformed access tokens)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Duplicate quoteNumber within the tenant, or quote can no longer be accepted
       content:
         application/json:
           schema:
@@ -270,6 +299,8 @@ components:
       type: object
       required: [code, message]
       properties:
-        code: { type: string }
+        code:
+          type: string
+          enum: [VALIDATION_ERROR, UNAUTHORIZED, NOT_FOUND, CONFLICT, INTERNAL_ERROR]
         message: { type: string }
         details: { type: array, items: { type: string }, nullable: true }
