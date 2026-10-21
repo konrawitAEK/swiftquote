@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# End-to-end smoke test against a running backend (Go or Spring):
-# login -> create quote -> list -> public view -> accept.
+# End-to-end smoke test of the approval workflow against a running backend (Go, Spring or Node):
+# RM creates -> RM submits -> WO approves -> RM sends -> customer opens the link -> customer signs.
 # Usage: scripts/smoke.sh [base_url]   (default http://localhost:8080/api/v1)
 set -euo pipefail
 
@@ -9,20 +9,23 @@ JSON='Content-Type: application/json'
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 field() { python3 -c "import sys, json; print(json.load(sys.stdin)['$1'])"; }
+login() {
+  curl -sf -X POST "$BASE/auth/login" -H "$JSON" -d "{\"email\":\"$1\",\"password\":\"password\"}" | field accessToken
+}
+action() { # token, quote id, action
+  curl -sf -X POST "$BASE/quotes/$2/$3" -H "$JSON" -H "Authorization: Bearer $1" -d '{}' | field status
+}
 
 step "Waiting for ${BASE%/api/v1}/healthz"
 curl -sf --retry 30 --retry-all-errors --retry-delay 1 "${BASE%/api/v1}/healthz"; echo
 
-step "POST /auth/login"
-LOGIN=$(curl -sf -X POST "$BASE/auth/login" -H "$JSON" \
-  -d '{"email":"demo@swiftquote.dev","password":"password"}')
-echo "$LOGIN"
-TOKEN=$(echo "$LOGIN" | field accessToken)
+RM=$(login rm1@swiftquote.dev)
+WO=$(login wo@swiftquote.dev)
 
-step "POST /quotes"
+step "RM creates a draft"
 NUMBER="SMOKE-$(date +%s)-$RANDOM"
 EXPIRY=$(python3 -c 'import datetime; print(datetime.date.today() + datetime.timedelta(days=30))')
-QUOTE=$(curl -sf -X POST "$BASE/quotes" -H "$JSON" -H "Authorization: Bearer $TOKEN" -d @- <<EOF
+QUOTE=$(curl -sf -X POST "$BASE/quotes" -H "$JSON" -H "Authorization: Bearer $RM" -d @- <<EOF
 {
   "clientId": "00000000-0000-4000-8000-000000000003",
   "quoteNumber": "$NUMBER",
@@ -34,20 +37,28 @@ QUOTE=$(curl -sf -X POST "$BASE/quotes" -H "$JSON" -H "Authorization: Bearer $TO
 }
 EOF
 )
-echo "$QUOTE"
+ID=$(echo "$QUOTE" | field id)
 ACCESS=$(echo "$QUOTE" | field accessToken)
 GRAND=$(echo "$QUOTE" | field grandTotal)
 [ "$GRAND" = "50236.5" ] || { echo "unexpected grandTotal $GRAND, want 50236.50"; exit 1; }
+echo "$NUMBER draft, grand total $GRAND"
 
-step "GET /quotes"
-curl -sf "$BASE/quotes" -H "Authorization: Bearer $TOKEN"; echo
+step "Share link is closed until the quote is sent"
+STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/public/quotes/$ACCESS")
+[ "$STATUS" = "404" ] || { echo "got $STATUS"; exit 1; }
+echo 404
 
-step "GET /public/quotes/$ACCESS"
-curl -sf "$BASE/public/quotes/$ACCESS"; echo
+step "RM submits, WO approves, RM sends"
+echo "submit  -> $(action "$RM" "$ID" submit)"
+echo "approve -> $(action "$WO" "$ID" approve)"
+echo "send    -> $(action "$RM" "$ID" send)"
 
-step "POST /public/quotes/$ACCESS/accept"
+step "Customer opens the link"
+curl -sf "$BASE/public/quotes/$ACCESS" | field status
+
+step "Customer signs"
 curl -sf -X POST "$BASE/public/quotes/$ACCESS/accept" -H "$JSON" \
-  -d '{"signerName":"Smoke Tester","signatureDataUrl":"data:image/png;base64,AA"}'; echo
+  -d '{"signerName":"Smoke Tester","signatureDataUrl":"data:image/png;base64,AA"}' | field status
 
 step "Second accept must be 409"
 STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/public/quotes/$ACCESS/accept" -H "$JSON" \
