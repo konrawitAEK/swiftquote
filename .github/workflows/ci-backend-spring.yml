@@ -1,0 +1,22 @@
+name: Backend Spring
+on:
+  push:
+    paths: ["backend/spring-boot-service/**", "contracts/fixtures/**", "db/migrations/**", ".github/workflows/ci-backend-spring.yml"]
+  pull_request:
+    paths: ["backend/spring-boot-service/**", "contracts/fixtures/**", "db/migrations/**", ".github/workflows/ci-backend-spring.yml"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/spring-boot-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      # Integration tests start Postgres via Testcontainers (Docker is available on ubuntu runners)
+      # and apply db/migrations, so they exercise the same schema as the Go job.
+      - run: ./mvnw -B verify

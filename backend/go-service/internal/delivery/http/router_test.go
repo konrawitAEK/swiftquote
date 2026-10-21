@@ -87,7 +87,7 @@ func resetDB(t *testing.T, pool *pgxpool.Pool) {
 func newTestEnv(t *testing.T, store testStore) *testEnv {
 	t.Helper()
 	app := NewRouter(Deps{
-		Auth:        auth.NewService(store, "test-secret"),
+		Auth:        auth.NewService(store, "test-secret-at-least-32-bytes-long"),
 		Clients:     client.NewService(store),
 		Quotes:      quote.NewService(store),
 		CORSOrigins: "*",
@@ -271,6 +271,7 @@ func TestErrorResponses(t *testing.T) {
 			{"get quote without token", "GET", "/api/v1/quotes/" + uuid.NewString(), "", nil, 401, "UNAUTHORIZED"},
 			{"unknown quote id", "GET", "/api/v1/quotes/" + uuid.NewString(), token, nil, 404, "NOT_FOUND"},
 			{"malformed quote id", "GET", "/api/v1/quotes/not-a-uuid", token, nil, 404, "NOT_FOUND"},
+			{"unknown route", "GET", "/api/v1/nope", "", nil, 404, "NOT_FOUND"},
 			{"list with bad token", "GET", "/api/v1/quotes", "garbage", nil, 401, "UNAUTHORIZED"},
 			{"invalid status filter", "GET", "/api/v1/quotes?status=bogus", token, nil, 400, "VALIDATION_ERROR"},
 			{"create without token", "POST", "/api/v1/quotes", "", validQuoteBody("Q-X"), 401, "UNAUTHORIZED"},
