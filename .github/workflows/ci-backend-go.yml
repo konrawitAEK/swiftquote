@@ -1,0 +1,21 @@
+name: Backend Go
+on:
+  push:
+    paths: ["backend/go-service/**", "contracts/fixtures/**", ".github/workflows/ci-backend-go.yml"]
+  pull_request:
+    paths: ["backend/go-service/**", "contracts/fixtures/**", ".github/workflows/ci-backend-go.yml"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/go-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go-service/go.mod
+          cache-dependency-path: backend/go-service/go.sum
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: go build ./cmd/server

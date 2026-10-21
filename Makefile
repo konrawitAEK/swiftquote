@@ -1,8 +1,9 @@
-.PHONY: help gen-types dev-db run-go-react run-spring-react run-go-next run-spring-angular stop
+.PHONY: help gen-types test-go dev-db run-go-react run-spring-react run-go-next run-spring-angular stop
 
 help:
 	@echo "SwiftQuote Polyglot Commands:"
 	@echo "  make gen-types           - Generate TypeScript interfaces from openapi.yaml"
+	@echo "  make test-go             - Vet and test the Go backend"
 	@echo "  make run-go-react        - Go Backend + React MUI Frontend"
 	@echo "  make run-spring-react    - Spring Boot Backend + React MUI Frontend"
 	@echo "  make run-go-next         - Go Backend + Next.js App"
@@ -14,6 +15,9 @@ gen-types:
 		-i contracts/openapi.yaml \
 		-g typescript-axios \
 		-o frontend/shared-contract-client
+
+test-go:
+	cd backend/go-service && go vet ./... && go test -race ./...
 
 run-go-react:
 	docker compose --profile go --profile react up --build
