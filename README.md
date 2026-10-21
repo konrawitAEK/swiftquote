@@ -9,8 +9,17 @@ Multi-tenant Quotation & Pipeline Management SaaS — an interchangeable polyglo
 
 ```bash
 make help
-make run-go-react
+make run-go-react        # any pairing: make run-<go|spring|node>-<react|next|angular>
 ```
+
+| | React + MUI | Next.js (App Router) | Angular (Signals) |
+|---|---|---|---|
+| URL | http://localhost:3000 | http://localhost:3001 | http://localhost:3002 |
+| Go | `make run-go-react` | `make run-go-next` | `make run-go-angular` |
+| Spring | `make run-spring-react` | `make run-spring-next` | `make run-spring-angular` |
+| Node | `make run-node-react` | `make run-node-next` | `make run-node-angular` |
+
+The API is always on http://localhost:8080; every frontend works with every backend unchanged.
 
 Full design: [docs/MASTER_BLUEPRINT.md](docs/MASTER_BLUEPRINT.md)
 
