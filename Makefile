@@ -1,4 +1,4 @@
-.PHONY: help gen-types test-db test-go test-spring test-node run-go run-spring run-node run-node-react smoke parity reset-db dev-db run-go-react run-spring-react run-go-next run-spring-angular stop
+.PHONY: help gen-types test-db test-go test-spring test-node run-go run-spring run-node run-node-react smoke parity bench reset-db dev-db run-go-react run-spring-react run-go-next run-spring-angular stop
 
 help:
 	@echo "SwiftQuote Polyglot Commands:"
@@ -12,6 +12,7 @@ help:
 	@echo "  make test-spring         - Spring unit + integration tests (needs Docker)"
 	@echo "  make test-node           - Node unit tests (+ Postgres tests if running)"
 	@echo "  make parity              - Run Go (:8080), Spring (:8081), Node (:8082) and diff responses"
+	@echo "  make bench               - Same three backends, compare throughput one at a time (ab)"
 	@echo "  make reset-db            - Drop the DB volume so migrations re-run"
 	@echo "  make run-go-react        - Go Backend + React MUI Frontend"
 	@echo "  make run-spring-react    - Spring Boot Backend + React MUI Frontend"
@@ -75,6 +76,11 @@ parity:
 	scripts/smoke.sh http://localhost:8082/api/v1 >/dev/null
 	@echo "== Go vs Spring"; scripts/parity.py http://localhost:8080/api/v1 http://localhost:8081/api/v1
 	@echo "== Go vs Node";   scripts/parity.py http://localhost:8080/api/v1 http://localhost:8082/api/v1
+
+# Rough speed comparison; tune with e.g. make bench N=10000 C=50.
+bench:
+	SPRING_PORT=8081 NODE_PORT=8082 docker compose --profile go --profile spring --profile node up -d --build --wait
+	N=$(or $(N),3000) C=$(or $(C),20) scripts/bench.sh go:8080 spring:8081 node:8082
 
 smoke:
 	scripts/smoke.sh
