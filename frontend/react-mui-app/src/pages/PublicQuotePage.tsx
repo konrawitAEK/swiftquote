@@ -36,6 +36,8 @@ export function PublicQuotePage() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [acceptedAt, setAcceptedAt] = useState<string | null>(null)
+  const [declining, setDeclining] = useState(false)
+  const [declineReason, setDeclineReason] = useState('')
 
   useEffect(() => {
     api
@@ -45,6 +47,24 @@ export function PublicQuotePage() {
       )
       .catch(() => setState({ kind: 'error', message: 'Cannot reach the server. Please try again later.' }))
   }, [accessToken])
+
+  const decline = async () => {
+    setBusy(true)
+    setSubmitError(null)
+    try {
+      const { data, error } = await api.POST('/public/quotes/{accessToken}/reject', {
+        params: { path: { accessToken } },
+        body: { comment: declineReason.trim() || null },
+      })
+      if (data && state.kind === 'ready') setState({ kind: 'ready', quote: { ...state.quote, status: 'rejected' } })
+      else setSubmitError(errorText(error, 'Could not decline this quotation'))
+    } catch {
+      setSubmitError('Cannot reach the server. Please try again.')
+    } finally {
+      setBusy(false)
+      setDeclining(false)
+    }
+  }
 
   const accept = async (e: FormEvent) => {
     e.preventDefault()
@@ -156,6 +176,30 @@ export function PublicQuotePage() {
                     <Button type="submit" variant="contained" size="large" disabled={busy}>
                       {busy ? 'Submitting…' : 'Sign and accept'}
                     </Button>
+                    {declining ? (
+                      <Stack spacing={1}>
+                        <TextField
+                          label="Reason for declining (optional)"
+                          value={declineReason}
+                          onChange={(e) => setDeclineReason(e.target.value)}
+                          multiline
+                          minRows={2}
+                          fullWidth
+                        />
+                        <Stack direction="row" spacing={1}>
+                          <Button color="error" variant="outlined" disabled={busy} onClick={decline}>
+                            Confirm decline
+                          </Button>
+                          <Button disabled={busy} onClick={() => setDeclining(false)}>
+                            Cancel
+                          </Button>
+                        </Stack>
+                      </Stack>
+                    ) : (
+                      <Button color="error" disabled={busy} onClick={() => setDeclining(true)}>
+                        Decline this quotation
+                      </Button>
+                    )}
                   </Stack>
                 </CardContent>
               </Card>

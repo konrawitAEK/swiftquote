@@ -1,18 +1,27 @@
-import { Alert, Box, Button, Card, CardContent, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Card, CardContent, Chip, Stack, TextField, Typography } from '@mui/material'
 import { useState, type FormEvent } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/auth'
+import { homePath } from '../auth/roles'
+
+// Seeded by db/migrations/V6__seed_dev_roles.sql; all use the password "password".
+const DEV_ACCOUNTS = [
+  { label: 'Admin', email: 'demo@swiftquote.dev' },
+  { label: 'WOC', email: 'woc@swiftquote.dev' },
+  { label: 'WO', email: 'wo@swiftquote.dev' },
+  { label: 'RM', email: 'rm1@swiftquote.dev' },
+  { label: 'Customer', email: 'buyer@acme.example' },
+]
 
 export function LoginPage() {
-  const { isAuthenticated, login } = useAuth()
-  const navigate = useNavigate()
-  const from = (useLocation().state as { from?: string } | null)?.from ?? '/quotes'
-  const [email, setEmail] = useState('demo@swiftquote.dev')
+  const { isAuthenticated, user, login } = useAuth()
+  const from = (useLocation().state as { from?: string } | null)?.from
+  const [email, setEmail] = useState('rm1@swiftquote.dev')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  if (isAuthenticated) return <Navigate to={from} replace />
+  if (isAuthenticated && user) return <Navigate to={from ?? homePath(user.role)} replace />
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -21,12 +30,11 @@ export function LoginPage() {
     const err = await login(email, password)
     setBusy(false)
     if (err) setError(err)
-    else navigate(from, { replace: true })
   }
 
   return (
     <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', p: 2, bgcolor: 'background.default' }}>
-      <Card sx={{ width: '100%', maxWidth: 400 }}>
+      <Card sx={{ width: '100%', maxWidth: 420 }}>
         <CardContent sx={{ p: 4 }}>
           <Typography variant="h5" sx={{ fontWeight: 700 }}>
             SwiftQuote
@@ -51,7 +59,6 @@ export function LoginPage() {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              helperText="Dev login: demo@swiftquote.dev / password"
               required
               fullWidth
               autoFocus
@@ -59,6 +66,20 @@ export function LoginPage() {
             <Button type="submit" variant="contained" size="large" disabled={busy}>
               {busy ? 'Signing in…' : 'Sign in'}
             </Button>
+          </Stack>
+          <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 3, mb: 1 }}>
+            Dev accounts (password: password)
+          </Typography>
+          <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
+            {DEV_ACCOUNTS.map((a) => (
+              <Chip
+                key={a.email}
+                label={a.label}
+                variant={email === a.email ? 'filled' : 'outlined'}
+                color={email === a.email ? 'primary' : 'default'}
+                onClick={() => setEmail(a.email)}
+              />
+            ))}
           </Stack>
         </CardContent>
       </Card>

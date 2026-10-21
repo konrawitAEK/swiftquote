@@ -4,6 +4,7 @@ import type { components, paths } from './schema'
 // Types generated from contracts/openapi.yaml (`make gen-types`).
 export type Schemas = components['schemas']
 export type QuoteStatus = Schemas['QuoteStatus']
+export type Role = Schemas['Role']
 export type ErrorResponse = Schemas['ErrorResponse']
 
 export const API_URL: string = import.meta.env.VITE_API_URL ?? 'http://localhost:8080/api/v1'
