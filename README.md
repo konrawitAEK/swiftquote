@@ -25,11 +25,18 @@ make test-go       # unit + HTTP tests; also runs against Postgres when it is up
 make reset-db      # wipe the DB volume so migrations and seed re-run
 ```
 
-Dev login: `demo@swiftquote.dev` / `password`, demo client id `00000000-0000-4000-8000-000000000003`.
-Health check: `curl localhost:8080/healthz`.
+Dev logins (password `password` for all), seeded by `db/migrations/V6__seed_dev_roles.sql`:
 
-Without Docker: `cd backend/go-service && JWT_SECRET=swiftquote-dev-only-jwt-secret-change-me go run ./cmd/server` uses in-memory storage
-(`STORAGE=memory`, the default), seeded with the same demo data and lost on restart.
+| Role | Email | Can |
+|---|---|---|
+| Admin | `demo@swiftquote.dev` | Manage users and teams only |
+| WOC | `woc@swiftquote.dev` | See every quote and the sales dashboard |
+| WO | `wo@swiftquote.dev` (Team Alpha), `wo2@swiftquote.dev` (Team Beta) | Approve or return their team's quotes |
+| RM | `rm1@`, `rm2@` (Alpha), `rm3@swiftquote.dev` (Beta) | Create, edit, submit and send their own quotes |
+| Customer | `buyer@acme.example`, `buyer@globex.example` | See and sign their company's sent quotes |
+
+Workflow: draft → pending approval → approved → sent → viewed → accepted / rejected.
+Health check: `curl localhost:8080/healthz`.
 
 ## Run the Spring Boot backend
 

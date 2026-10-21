@@ -6,13 +6,10 @@ import {
   Button,
   Card,
   CardContent,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   Divider,
   IconButton,
   InputAdornment,
+  LinearProgress,
   MenuItem,
   Stack,
   TextField,
@@ -20,16 +17,16 @@ import {
   Typography,
 } from '@mui/material'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link as RouterLink } from 'react-router-dom'
-import { api, errorText, type Schemas } from '../api/client'
-import { ShareLink } from '../components/ShareLink'
-import { shareUrl } from '../components/shareUrl'
-import { TotalRow } from '../components/TotalRow'
-import { calculate, formatMoney, toDecimal } from '../pricing/pricing'
+import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
+import { api, errorText, type Schemas } from '../../api/client'
+import { TotalRow } from '../../components/TotalRow'
+import { calculate, formatMoney, toDecimal } from '../../pricing/pricing'
 
 interface Line {
   key: number
   title: string
+  categoryId: string
+  description: string
   quantity: string
   unitPrice: string
   discountPercent: string
@@ -40,6 +37,8 @@ let nextKey = 1
 const newLine = (): Line => ({
   key: nextKey++,
   title: '',
+  categoryId: '',
+  description: '',
   quantity: '1',
   unitPrice: '',
   discountPercent: '0',
@@ -56,8 +55,13 @@ function defaultQuoteNumber(): string {
   return `Q-${stamp}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`
 }
 
+/** Creates a draft (/quotes/new) or edits one (/quotes/:id/edit). Only RMs reach this page. */
 export function QuoteBuilderPage() {
+  const { id } = useParams()
+  const editing = id !== undefined
+  const navigate = useNavigate()
   const [clients, setClients] = useState<Schemas['Client'][]>([])
+  const [categories, setCategories] = useState<Schemas['ProductCategory'][]>([])
   const [clientId, setClientId] = useState('')
   const [quoteNumber, setQuoteNumber] = useState(defaultQuoteNumber)
   const [today] = useState(() => isoDate(new Date()))
@@ -65,15 +69,44 @@ export function QuoteBuilderPage() {
   const [lines, setLines] = useState<Line[]>(() => [newLine()])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [created, setCreated] = useState<Schemas['QuoteDetail'] | null>(null)
+  const [loading, setLoading] = useState(editing)
+  const [locked, setLocked] = useState<string | null>(null)
 
   useEffect(() => {
+    api.GET('/categories').then(({ data, error }) => {
+      if (!data) return setError(errorText(error, 'Could not load product categories'))
+      setCategories(data)
+    })
     api.GET('/clients').then(({ data, error }) => {
       if (!data) return setError(errorText(error, 'Could not load clients'))
       setClients(data)
-      if (data.length === 1) setClientId(data[0].id)
+      if (!editing && data.length === 1) setClientId(data[0].id)
     })
-  }, [])
+  }, [editing])
+
+  useEffect(() => {
+    if (!id) return
+    api.GET('/quotes/{id}', { params: { path: { id } } }).then(({ data, error }) => {
+      setLoading(false)
+      if (!data) return setError(errorText(error, 'Could not load quotation'))
+      if (data.status !== 'draft') setLocked(`This quotation is ${data.status.replace('_', ' ')} and can no longer be edited.`)
+      setClientId(data.clientId)
+      setQuoteNumber(data.quoteNumber)
+      setExpiryDate(data.expiryDate)
+      setLines(
+        data.items.map((it) => ({
+          key: nextKey++,
+          title: it.title,
+          categoryId: it.category?.id ?? '',
+          description: it.description ?? '',
+          quantity: String(it.quantity),
+          unitPrice: String(it.unitPrice),
+          discountPercent: String(it.discountPercent),
+          taxPercent: String(it.taxPercent),
+        })),
+      )
+    })
+  }, [id])
 
   const totals = useMemo(
     () =>
@@ -95,23 +128,26 @@ export function QuoteBuilderPage() {
     e.preventDefault()
     setBusy(true)
     setError(null)
+    const body = {
+      clientId,
+      quoteNumber,
+      expiryDate,
+      items: lines.map((l) => ({
+        title: l.title,
+        categoryId: l.categoryId,
+        ...(l.description.trim() ? { description: l.description } : {}),
+        quantity: Number(l.quantity),
+        unitPrice: Number(l.unitPrice),
+        discountPercent: Number(l.discountPercent || 0),
+        taxPercent: Number(l.taxPercent || 0),
+      })),
+    }
     try {
-      const { data, error } = await api.POST('/quotes', {
-        body: {
-          clientId,
-          quoteNumber,
-          expiryDate,
-          items: lines.map((l) => ({
-            title: l.title,
-            quantity: Number(l.quantity),
-            unitPrice: Number(l.unitPrice),
-            discountPercent: Number(l.discountPercent || 0),
-            taxPercent: Number(l.taxPercent || 0),
-          })),
-        },
-      })
-      if (data) setCreated(data)
-      else setError(errorText(error, 'Could not create quote'))
+      const { data, error } = id
+        ? await api.PUT('/quotes/{id}', { params: { path: { id } }, body })
+        : await api.POST('/quotes', { body })
+      if (data) navigate(`/quotes/${data.id}`)
+      else setError(errorText(error, 'Could not save quotation'))
     } catch {
       setError('Cannot reach the API')
     } finally {
@@ -119,26 +155,26 @@ export function QuoteBuilderPage() {
     }
   }
 
+  if (loading) return <LinearProgress />
+
   return (
     <Box component="form" onSubmit={submit}>
       <Stack spacing={3}>
         <Typography variant="h4" component="h1" sx={{ fontWeight: 700 }}>
-          New quotation
+          {editing ? `Edit ${quoteNumber}` : 'New quotation'}
         </Typography>
 
+        {locked && (
+          <Alert severity="info" action={<Button component={RouterLink} to={`/quotes/${id}`}>View</Button>}>
+            {locked}
+          </Alert>
+        )}
         {error && <Alert severity="error">{error}</Alert>}
 
         <Card>
           <CardContent>
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-              <TextField
-                select
-                label="Client"
-                value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
-                required
-                fullWidth
-              >
+              <TextField select label="Client" value={clientId} onChange={(e) => setClientId(e.target.value)} required fullWidth>
                 {clients.map((c) => (
                   <MenuItem key={c.id} value={c.id}>
                     {c.name}
@@ -181,6 +217,23 @@ export function QuoteBuilderPage() {
                     sx={{ flex: 3 }}
                     size="small"
                   />
+                  <TextField
+                    select
+                    label="Category"
+                    value={l.categoryId}
+                    onChange={(e) => update(l.key, 'categoryId', e.target.value)}
+                    required
+                    sx={{ flex: 2, minWidth: 140 }}
+                    size="small"
+                  >
+                    {categories
+                      .filter((c) => c.active || c.id === l.categoryId)
+                      .map((c) => (
+                        <MenuItem key={c.id} value={c.id} disabled={!c.active}>
+                          {c.active ? c.name : `${c.name} (retired)`}
+                        </MenuItem>
+                      ))}
+                  </TextField>
                   <TextField
                     label="Qty"
                     type="number"
@@ -225,9 +278,7 @@ export function QuoteBuilderPage() {
                     sx={{ flex: 1 }}
                     size="small"
                   />
-                  <Typography
-                    sx={{ flex: 1.5, textAlign: { md: 'right' }, fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}
-                  >
+                  <Typography sx={{ flex: 1.5, textAlign: { md: 'right' }, fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>
                     {formatMoney(totals.lineTotals[i])}
                   </Typography>
                   <Tooltip title="Remove line">
@@ -250,47 +301,38 @@ export function QuoteBuilderPage() {
           </CardContent>
         </Card>
 
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ justifyContent: 'space-between', alignItems: { md: 'flex-start' } }}>
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          spacing={2}
+          sx={{ justifyContent: 'space-between', alignItems: { md: 'flex-start' } }}
+        >
           <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 420 }}>
-            Totals update as you type using the same rounding rules as the server. The server recalculates on save.
+            Totals update as you type using the same rounding rules as the server. Saving keeps the quotation as a draft;
+            submit it for approval from its page.
           </Typography>
           <Card sx={{ minWidth: { md: 340 } }}>
             <CardContent>
-              <Stack spacing={1} sx={{ fontVariantNumeric: 'tabular-nums' }}>
+              <Stack spacing={1}>
                 <TotalRow label="Subtotal" value={formatMoney(totals.subtotal)} />
                 <TotalRow label="Discount" value={`− ${formatMoney(totals.discountAmount)}`} />
                 <TotalRow label="VAT" value={formatMoney(totals.taxAmount)} />
                 <Divider />
                 <TotalRow label="Grand total" value={formatMoney(totals.grandTotal)} strong />
               </Stack>
-              <Button type="submit" variant="contained" size="large" fullWidth sx={{ mt: 2 }} disabled={busy || !clientId}>
-                {busy ? 'Saving…' : 'Create quotation'}
+              <Button
+                type="submit"
+                variant="contained"
+                size="large"
+                fullWidth
+                sx={{ mt: 2 }}
+                disabled={busy || !clientId || locked !== null}
+              >
+                {busy ? 'Saving…' : editing ? 'Save changes' : 'Save draft'}
               </Button>
             </CardContent>
           </Card>
         </Stack>
       </Stack>
-
-      <Dialog open={created !== null} fullWidth maxWidth="sm">
-        <DialogTitle>Quotation {created?.quoteNumber} created</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" sx={{ mb: 2 }}>
-            Grand total {created && formatMoney(created.grandTotal)}. Share this link with your client so they can review
-            and sign:
-          </Typography>
-          {created?.accessToken && <ShareLink accessToken={created.accessToken} />}
-        </DialogContent>
-        <DialogActions>
-          {created?.accessToken && (
-            <Button href={shareUrl(created.accessToken)} target="_blank" rel="noopener">
-              Open client view
-            </Button>
-          )}
-          <Button component={RouterLink} to={`/quotes/${created?.id ?? ''}`} variant="contained">
-            View quotation
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   )
 }

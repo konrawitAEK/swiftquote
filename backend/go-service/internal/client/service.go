@@ -22,6 +22,10 @@ func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
 }
 
-func (s *Service) List(ctx context.Context, orgID uuid.UUID) ([]domain.Client, error) {
-	return s.repo.ListClients(ctx, orgID)
+// List is for RMs picking a client and admins linking customers to one.
+func (s *Service) List(ctx context.Context, a domain.Actor) ([]domain.Client, error) {
+	if a.Role != domain.RoleRM && a.Role != domain.RoleAdmin {
+		return nil, domain.ErrRoleForbidden
+	}
+	return s.repo.ListClients(ctx, a.TenantID)
 }

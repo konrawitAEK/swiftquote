@@ -7,12 +7,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/admin"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/auth"
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/catalog"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/client"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/config"
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/dashboard"
 	httpdelivery "github.com/konrawitAEK/swiftquote/backend/go-service/internal/delivery/http"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/quote"
-	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/storage/memory"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/storage/postgres"
 )
 
@@ -24,36 +26,24 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	var store interface {
-		auth.Repository
-		client.Repository
-		quote.Repository
+	// The pool connects lazily, so the server starts even while Postgres is still booting;
+	// /healthz reports DB readiness.
+	pool, err := postgres.Connect(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("db pool: %v", err)
 	}
-	ping := func(context.Context) error { return nil }
-	switch cfg.Storage {
-	case "postgres":
-		// The pool connects lazily, so the server starts even while Postgres is still booting;
-		// /healthz reports DB readiness.
-		pool, err := postgres.Connect(ctx, cfg.DatabaseURL)
-		if err != nil {
-			log.Fatalf("db pool: %v", err)
-		}
-		defer pool.Close()
-		store, ping = postgres.New(pool), pool.Ping
-	default:
-		mem := memory.NewStore()
-		mem.Seed()
-		store = mem
-		log.Printf("memory storage seeded; login with %s / %s", memory.DemoEmail, memory.DemoPassword)
-	}
+	defer pool.Close()
+	store := postgres.New(pool)
 
 	app := httpdelivery.NewRouter(httpdelivery.Deps{
 		Auth:        auth.NewService(store, cfg.JWTSecret),
+		Catalog:     catalog.NewService(store),
 		Clients:     client.NewService(store),
 		Quotes:      quote.NewService(store),
+		Admin:       admin.NewService(store),
+		Dashboard:   dashboard.NewService(store),
 		CORSOrigins: cfg.CORSOrigins,
-		Storage:     cfg.Storage,
-		Ping:        ping,
+		Ping:        pool.Ping,
 	})
 
 	go func() {
@@ -65,7 +55,7 @@ func main() {
 		}
 	}()
 
-	log.Printf("swiftquote go-service listening on :%s (storage=%s)", cfg.Port, cfg.Storage)
+	log.Printf("swiftquote go-service listening on :%s", cfg.Port)
 	if err := app.Listen(":" + cfg.Port); err != nil {
 		log.Fatalf("listen: %v", err)
 	}

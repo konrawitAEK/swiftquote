@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api, AUTH_EXPIRED_EVENT, errorText, getToken, setToken } from '../api/client'
 import { AuthContext, type AuthUser } from './auth'
+import { ROLE_LABELS } from './roles'
 
 const USER_KEY = 'swiftquote.user'
 
+/** The stored user, or null if missing or from an older app version (unknown role). */
 function loadUser(): AuthUser | null {
   try {
     const raw = localStorage.getItem(USER_KEY)
-    return raw ? (JSON.parse(raw) as AuthUser) : null
+    const user = raw ? (JSON.parse(raw) as AuthUser) : null
+    return user && user.role in ROLE_LABELS ? user : null
   } catch {
     return null
   }
@@ -18,13 +21,14 @@ function saveUser(user: AuthUser | null): void {
     if (user) localStorage.setItem(USER_KEY, JSON.stringify(user))
     else localStorage.removeItem(USER_KEY)
   } catch {
-    // non-essential: only used for the header greeting
+    // non-essential: the session still works for this tab
   }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setTokenState] = useState(getToken)
   const [user, setUser] = useState(loadUser)
+  // A token without a usable stored user (e.g. saved by an older version) is discarded.
+  const [token, setTokenState] = useState(() => (user ? getToken() : null))
 
   const logout = useCallback(() => {
     setToken(null)

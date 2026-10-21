@@ -18,13 +18,26 @@ import {
 } from '@mui/material'
 import { useEffect, useState } from 'react'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
-import { api, errorText, type QuoteStatus, type Schemas } from '../api/client'
-import { StatusChip } from '../components/StatusChip'
-import { formatMoney } from '../pricing/pricing'
+import { api, errorText, type QuoteStatus, type Role, type Schemas } from '../../api/client'
+import { useAuth } from '../../auth/auth'
+import { STATUS_LABELS } from '../../auth/roles'
+import { StatusChip } from '../../components/StatusChip'
+import { formatMoney } from '../../pricing/pricing'
 
-const STATUSES: QuoteStatus[] = ['draft', 'sent', 'viewed', 'accepted', 'rejected', 'expired']
+const STATUSES: QuoteStatus[] = ['draft', 'pending_approval', 'approved', 'sent', 'viewed', 'accepted', 'rejected']
+const CUSTOMER_STATUSES: QuoteStatus[] = ['sent', 'viewed', 'accepted', 'rejected']
+
+const TITLES: Record<Role, string> = {
+  rm: 'My quotations',
+  wo: 'Team quotations',
+  woc: 'All quotations',
+  customer: 'My quotations',
+  admin: 'Quotations',
+}
 
 export function QuotesPage() {
+  const role = useAuth().user?.role ?? 'rm'
+  const showCreator = role === 'wo' || role === 'woc'
   const [status, setStatus] = useState<QuoteStatus | ''>('')
   const [quotes, setQuotes] = useState<Schemas['QuoteSummary'][] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -49,7 +62,7 @@ export function QuotesPage() {
     <Stack spacing={3}>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ justifyContent: 'space-between' }}>
         <Typography variant="h4" component="h1" sx={{ fontWeight: 700 }}>
-          Quotations
+          {TITLES[role]}
         </Typography>
         <Stack direction="row" spacing={2}>
           <TextField
@@ -64,15 +77,17 @@ export function QuotesPage() {
             sx={{ minWidth: 140 }}
           >
             <MenuItem value="">All</MenuItem>
-            {STATUSES.map((s) => (
-              <MenuItem key={s} value={s} sx={{ textTransform: 'capitalize' }}>
-                {s}
+            {(role === 'customer' ? CUSTOMER_STATUSES : STATUSES).map((s) => (
+              <MenuItem key={s} value={s}>
+                {STATUS_LABELS[s]}
               </MenuItem>
             ))}
           </TextField>
-          <Button component={RouterLink} to="/quotes/new" variant="contained" startIcon={<AddIcon />}>
-            New quote
-          </Button>
+          {role === 'rm' && (
+            <Button component={RouterLink} to="/quotes/new" variant="contained" startIcon={<AddIcon />}>
+              New quote
+            </Button>
+          )}
         </Stack>
       </Stack>
 
@@ -86,6 +101,7 @@ export function QuotesPage() {
               <TableRow>
                 <TableCell>Number</TableCell>
                 <TableCell>Client</TableCell>
+                {showCreator && <TableCell>Created by</TableCell>}
                 <TableCell>Status</TableCell>
                 <TableCell>Expires</TableCell>
                 <TableCell align="right">Grand total</TableCell>
@@ -105,6 +121,7 @@ export function QuotesPage() {
                     </Box>
                   </TableCell>
                   <TableCell>{q.clientName}</TableCell>
+                  {showCreator && <TableCell>{q.createdBy?.name ?? '—'}</TableCell>}
                   <TableCell>
                     <StatusChip status={q.status} />
                   </TableCell>
@@ -116,9 +133,9 @@ export function QuotesPage() {
               ))}
               {quotes?.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5}>
+                  <TableCell colSpan={showCreator ? 6 : 5}>
                     <Box sx={{ py: 4, textAlign: 'center', color: 'text.secondary' }}>
-                      No quotations yet. Create one to get started.
+                      {role === 'rm' ? 'No quotations yet. Create one to get started.' : 'No quotations to show.'}
                     </Box>
                   </TableCell>
                 </TableRow>
