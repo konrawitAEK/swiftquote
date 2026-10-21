@@ -1,14 +1,17 @@
-.PHONY: help gen-types test-go test-spring run-go run-spring smoke parity reset-db dev-db run-go-react run-spring-react run-go-next run-spring-angular stop
+.PHONY: help gen-types test-go test-spring test-node run-go run-spring run-node run-node-react smoke parity reset-db dev-db run-go-react run-spring-react run-go-next run-spring-angular stop
 
 help:
 	@echo "SwiftQuote Polyglot Commands:"
 	@echo "  make gen-types           - Generate TypeScript API types from openapi.yaml"
 	@echo "  make run-go              - Go Backend + Postgres only (API on :8080)"
 	@echo "  make run-spring          - Spring Boot Backend + Postgres only (API on :8080)"
+	@echo "  make run-node            - Node.js (Fastify) Backend + Postgres only (API on :8080)"
+	@echo "  make run-node-react      - Node.js Backend + React MUI Frontend"
 	@echo "  make smoke               - End-to-end API smoke test against :8080"
 	@echo "  make test-go             - Vet and test the Go backend (+ Postgres if running)"
 	@echo "  make test-spring         - Spring unit + integration tests (needs Docker)"
-	@echo "  make parity              - Run Go (:8080) and Spring (:8081) side by side and diff responses"
+	@echo "  make test-node           - Node unit tests (+ Postgres tests if running)"
+	@echo "  make parity              - Run Go (:8080), Spring (:8081), Node (:8082) and diff responses"
 	@echo "  make reset-db            - Drop the DB volume so migrations re-run"
 	@echo "  make run-go-react        - Go Backend + React MUI Frontend"
 	@echo "  make run-spring-react    - Spring Boot Backend + React MUI Frontend"
@@ -49,16 +52,38 @@ run-spring:
 test-spring:
 	cd backend/spring-boot-service && ./mvnw -B verify
 
+run-node:
+	docker compose --profile node up --build
+
+run-node-react:
+	docker compose --profile node --profile react up --build
+
+# Like test-go: Postgres-backed tests use a throwaway $(TEST_DB) recreated from db/migrations.
+test-node:
+	cd backend/node-service && npm ci --silent && npm run typecheck
+	@if docker compose exec -T postgres pg_isready -q 2>/dev/null; then \
+		docker compose exec -T postgres psql -q -U postgres -c 'DROP DATABASE IF EXISTS $(TEST_DB)' -c 'CREATE DATABASE $(TEST_DB)' && \
+		for f in $$(ls db/migrations/V*.sql | sort -V); do \
+			docker compose exec -T postgres psql -q -v ON_ERROR_STOP=1 -U postgres -d $(TEST_DB) < $$f || exit 1; \
+		done && \
+		cd backend/node-service && TEST_DATABASE_URL='$(TEST_DATABASE_URL)' npm test; \
+	else \
+		echo "Postgres not running: skipping DB tests (start with: docker compose up -d postgres)"; \
+		cd backend/node-service && npm test; \
+	fi
+
 parity:
-	SPRING_PORT=8081 docker compose --profile go --profile spring up -d --build --wait
+	SPRING_PORT=8081 NODE_PORT=8082 docker compose --profile go --profile spring --profile node up -d --build --wait
 	scripts/smoke.sh http://localhost:8081/api/v1 >/dev/null
-	scripts/parity.py http://localhost:8080/api/v1 http://localhost:8081/api/v1
+	scripts/smoke.sh http://localhost:8082/api/v1 >/dev/null
+	@echo "== Go vs Spring"; scripts/parity.py http://localhost:8080/api/v1 http://localhost:8081/api/v1
+	@echo "== Go vs Node";   scripts/parity.py http://localhost:8080/api/v1 http://localhost:8082/api/v1
 
 smoke:
 	scripts/smoke.sh
 
 reset-db:
-	docker compose --profile all --profile go --profile spring --profile react --profile next --profile angular down -v
+	docker compose --profile all --profile go --profile spring --profile node --profile react --profile next --profile angular down -v
 
 run-go-react:
 	docker compose --profile go --profile react up --build
@@ -73,4 +98,4 @@ run-spring-angular:
 	docker compose --profile spring --profile angular up --build
 
 stop:
-	docker compose --profile all --profile go --profile spring --profile react --profile next --profile angular down
+	docker compose --profile all --profile go --profile spring --profile node --profile react --profile next --profile angular down
