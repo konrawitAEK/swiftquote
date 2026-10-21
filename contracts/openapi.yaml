@@ -3,14 +3,26 @@ info:
   title: SwiftQuote Interchangeable API
   version: 1.0.0
   description: Canonical API specification for the SwiftQuote multi-tenant engine.
+  contact:
+    name: SwiftQuote Team
+    url: https://github.com/konrawitAEK/swiftquote
 servers:
   - url: http://localhost:8080/api/v1
     description: Local Gateway (either Go or Spring Boot backend)
+
+tags:
+  - name: Auth
+    description: Authentication and session issuance
+  - name: Quotes
+    description: Tenant-scoped quotation management
+  - name: ClientPortal
+    description: Public, token-based quote access for clients
 
 paths:
   /auth/login:
     post:
       summary: User login
+      operationId: login
       tags: [Auth]
       requestBody:
         required: true
@@ -31,6 +43,7 @@ paths:
   /quotes:
     get:
       summary: List quotations for current tenant
+      operationId: listQuotes
       tags: [Quotes]
       security:
         - BearerAuth: []
@@ -41,6 +54,7 @@ paths:
             $ref: '#/components/schemas/QuoteStatus'
       responses:
         '200':
+          description: Quotations visible to the current tenant
           content:
             application/json:
               schema:
@@ -49,6 +63,7 @@ paths:
                   $ref: '#/components/schemas/QuoteSummary'
     post:
       summary: Create quotation with real-time recalculation
+      operationId: createQuote
       tags: [Quotes]
       security:
         - BearerAuth: []
@@ -60,6 +75,7 @@ paths:
               $ref: '#/components/schemas/CreateQuoteRequest'
       responses:
         '201':
+          description: Quotation created
           content:
             application/json:
               schema:
@@ -70,6 +86,7 @@ paths:
   /public/quotes/{accessToken}:
     get:
       summary: Fetch quote details for client portal without auth
+      operationId: getPublicQuote
       tags: [ClientPortal]
       parameters:
         - name: accessToken
@@ -80,6 +97,7 @@ paths:
             format: uuid
       responses:
         '200':
+          description: Public quote view
           content:
             application/json:
               schema:
@@ -90,6 +108,7 @@ paths:
   /public/quotes/{accessToken}/accept:
     post:
       summary: Client submits e-signature to accept proposal
+      operationId: acceptPublicQuote
       tags: [ClientPortal]
       parameters:
         - name: accessToken
