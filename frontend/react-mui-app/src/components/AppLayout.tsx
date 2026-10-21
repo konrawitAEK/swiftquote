@@ -20,11 +20,12 @@ const NAV: Record<Role, { to: string; label: string }[]> = {
 
 /** Shell for signed-in pages; redirects to /login without a session and home when the role may not open the page. */
 export function AppLayout({ roles }: { roles?: Role[] }) {
-  const { isAuthenticated, user, logout } = useAuth()
+  const { isAuthenticated, user, logout, loggedOut } = useAuth()
   const location = useLocation()
 
   if (!isAuthenticated || !user) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />
+    // Remember the page (a link opened while signed out, or an expired session), but not after "Log out".
+    return <Navigate to="/login" replace state={loggedOut ? undefined : { from: location.pathname }} />
   }
   if (roles && !roles.includes(user.role)) {
     return <Navigate to={homePath(user.role)} replace />

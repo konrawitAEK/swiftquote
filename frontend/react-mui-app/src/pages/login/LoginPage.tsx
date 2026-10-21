@@ -13,6 +13,8 @@ const DEV_ACCOUNTS = [
   { label: 'Customer', email: 'buyer@acme.example' },
 ]
 
+const LANDING_PAGES = ['/', '/quotes', '/dashboard', '/admin']
+
 export function LoginPage() {
   const { isAuthenticated, user, login } = useAuth()
   const from = (useLocation().state as { from?: string } | null)?.from
@@ -21,7 +23,11 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  if (isAuthenticated && user) return <Navigate to={from ?? homePath(user.role)} replace />
+  // Return to a deep link (e.g. a quote opened from an email); landing pages always go to the role's home.
+  if (isAuthenticated && user) {
+    const deepLink = from && !LANDING_PAGES.includes(from) ? from : undefined
+    return <Navigate to={deepLink ?? homePath(user.role)} replace />
+  }
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()

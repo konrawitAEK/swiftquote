@@ -30,7 +30,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // A token without a usable stored user (e.g. saved by an older version) is discarded.
   const [token, setTokenState] = useState(() => (user ? getToken() : null))
 
-  const logout = useCallback(() => {
+  const [loggedOut, setLoggedOut] = useState(false)
+
+  const endSession = useCallback(() => {
     setToken(null)
     saveUser(null)
     setTokenState(null)
@@ -38,9 +40,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    window.addEventListener(AUTH_EXPIRED_EVENT, logout)
-    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, logout)
-  }, [logout])
+    window.addEventListener(AUTH_EXPIRED_EVENT, endSession)
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, endSession)
+  }, [endSession])
+
+  const logout = useCallback(() => {
+    setLoggedOut(true)
+    endSession()
+  }, [endSession])
 
   const login = useCallback(async (email: string, password: string) => {
     try {
@@ -50,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       saveUser(data.user)
       setTokenState(data.accessToken)
       setUser(data.user)
+      setLoggedOut(false)
       return null
     } catch {
       return 'Cannot reach the API. Is the backend running on :8080?'
@@ -57,8 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo(
-    () => ({ isAuthenticated: token !== null, user, login, logout }),
-    [token, user, login, logout],
+    () => ({ isAuthenticated: token !== null, user, login, logout, loggedOut }),
+    [token, user, login, logout, loggedOut],
   )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
