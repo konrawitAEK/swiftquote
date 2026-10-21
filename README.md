@@ -60,3 +60,8 @@ make test-node       # unit tests, plus Postgres tests when the compose DB is up
 ```
 
 `make parity` checks all three backends: Go vs Spring and Go vs Node.
+
+`make bench` starts the same three and measures each one in turn with ApacheBench (`ab`):
+requests per second and p50/p99 latency for `/healthz`, `GET /quotes`, `GET /dashboard/summary` and
+login, plus memory. Tune with `make bench N=10000 C=50`. Everything shares one laptop's CPU, so treat
+the numbers as a comparison, not capacity planning.

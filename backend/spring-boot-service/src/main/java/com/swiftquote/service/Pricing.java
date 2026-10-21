@@ -5,11 +5,9 @@ import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.swiftquote.domain.QuoteItem;
-
 /**
- * Quote pricing, identical to the Go service and pinned by contracts/fixtures/pricing-cases.json. Change both
- * backends together.
+ * Quote pricing, identical to backend/go-service/internal/quote/pricing.go and pinned by
+ * contracts/fixtures/pricing-cases.json. Change all backends together.
  */
 public final class Pricing {
 
@@ -22,24 +20,28 @@ public final class Pricing {
 	private Pricing() {
 	}
 
+	public record Line(BigDecimal quantity, BigDecimal unitPrice, BigDecimal discountPercent, BigDecimal taxPercent) {
+	}
+
 	public record Result(List<BigDecimal> lineTotals, BigDecimal subtotal, BigDecimal discountAmount,
 			BigDecimal taxAmount, BigDecimal grandTotal) {
 	}
 
 	/**
-	 * Validates items and prices them. Rounding is HALF_UP (half away from zero) to 2 places, applied per line.
-	 * @throws IllegalArgumentException with a contract-style message for invalid input
+	 * Validates lines and prices them. Rounding is HALF_UP (half away from zero) to 2 places, applied per line;
+	 * lineTotal is gross minus discount, before VAT.
+	 * @throws IllegalArgumentException with the contract message for the first invalid line
 	 */
-	public static Result calculate(List<QuoteItem> items) {
-		if (items.isEmpty()) {
+	public static Result calculate(List<Line> lines) {
+		if (lines.isEmpty()) {
 			throw new IllegalArgumentException(NO_ITEMS);
 		}
-		BigDecimal subtotal = money(BigDecimal.ZERO);
-		BigDecimal discountAmount = money(BigDecimal.ZERO);
-		BigDecimal taxAmount = money(BigDecimal.ZERO);
-		List<BigDecimal> lineTotals = new ArrayList<>(items.size());
-		for (int i = 0; i < items.size(); i++) {
-			QuoteItem it = items.get(i);
+		BigDecimal subtotal = BigDecimal.ZERO;
+		BigDecimal discountAmount = BigDecimal.ZERO;
+		BigDecimal taxAmount = BigDecimal.ZERO;
+		List<BigDecimal> lineTotals = new ArrayList<>(lines.size());
+		for (int i = 0; i < lines.size(); i++) {
+			Line it = lines.get(i);
 			String problem = validate(it);
 			if (problem != null) {
 				throw new IllegalArgumentException("items[%d]: %s".formatted(i, problem));
@@ -53,12 +55,12 @@ public final class Pricing {
 			discountAmount = discountAmount.add(discount);
 			taxAmount = taxAmount.add(tax);
 		}
-		return new Result(List.copyOf(lineTotals), subtotal, discountAmount, taxAmount,
-				subtotal.subtract(discountAmount).add(taxAmount));
+		return new Result(List.copyOf(lineTotals), money(subtotal), money(discountAmount), money(taxAmount),
+				money(subtotal.subtract(discountAmount).add(taxAmount)));
 	}
 
 	/** Enforces the QuoteItemInput constraints from contracts/openapi.yaml. */
-	private static String validate(QuoteItem it) {
+	private static String validate(Line it) {
 		if (it.quantity().compareTo(BigDecimal.ONE) < 0) {
 			return "quantity must be at least 1";
 		}

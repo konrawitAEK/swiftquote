@@ -1,9 +1,9 @@
 name: Backend Go
 on:
   push:
-    paths: ["backend/go-service/**", "contracts/fixtures/**", "db/migrations/**", ".github/workflows/ci-backend-go.yml"]
+    paths: ["backend/go-service/**", "contracts/fixtures/**", "db/migrations/**", "db/test/**", ".github/workflows/ci-backend-go.yml"]
   pull_request:
-    paths: ["backend/go-service/**", "contracts/fixtures/**", "db/migrations/**", ".github/workflows/ci-backend-go.yml"]
+    paths: ["backend/go-service/**", "contracts/fixtures/**", "db/migrations/**", "db/test/**", ".github/workflows/ci-backend-go.yml"]
 jobs:
   test:
     runs-on: ubuntu-latest

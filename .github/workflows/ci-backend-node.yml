@@ -1,9 +1,9 @@
 name: Backend Node
 on:
   push:
-    paths: ["backend/node-service/**", "contracts/fixtures/**", "db/migrations/**", ".github/workflows/ci-backend-node.yml"]
+    paths: ["backend/node-service/**", "contracts/fixtures/**", "db/migrations/**", "db/test/**", ".github/workflows/ci-backend-node.yml"]
   pull_request:
-    paths: ["backend/node-service/**", "contracts/fixtures/**", "db/migrations/**", ".github/workflows/ci-backend-node.yml"]
+    paths: ["backend/node-service/**", "contracts/fixtures/**", "db/migrations/**", "db/test/**", ".github/workflows/ci-backend-node.yml"]
 jobs:
   test:
     runs-on: ubuntu-latest

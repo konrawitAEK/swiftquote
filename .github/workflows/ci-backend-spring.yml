@@ -1,9 +1,9 @@
 name: Backend Spring
 on:
   push:
-    paths: ["backend/spring-boot-service/**", "contracts/fixtures/**", "db/migrations/**", ".github/workflows/ci-backend-spring.yml"]
+    paths: ["backend/spring-boot-service/**", "contracts/fixtures/**", "db/migrations/**", "db/test/**", ".github/workflows/ci-backend-spring.yml"]
   pull_request:
-    paths: ["backend/spring-boot-service/**", "contracts/fixtures/**", "db/migrations/**", ".github/workflows/ci-backend-spring.yml"]
+    paths: ["backend/spring-boot-service/**", "contracts/fixtures/**", "db/migrations/**", "db/test/**", ".github/workflows/ci-backend-spring.yml"]
 jobs:
   test:
     runs-on: ubuntu-latest

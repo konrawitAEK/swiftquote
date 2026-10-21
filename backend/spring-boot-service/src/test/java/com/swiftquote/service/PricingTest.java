@@ -11,8 +11,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import tools.jackson.databind.json.JsonMapper;
 
-import com.swiftquote.domain.QuoteItem;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
@@ -49,7 +47,7 @@ class PricingTest {
 	@ParameterizedTest(name = "{0}")
 	@MethodSource("sharedFixtures")
 	void matchesSharedFixtures(Case tc) {
-		List<QuoteItem> items = tc.items()
+		List<Pricing.Line> items = tc.items()
 			.stream()
 			.map((fi) -> item(fi.quantity(), fi.unitPrice(), fi.discountPercent(), fi.taxPercent()))
 			.toList();
@@ -72,15 +70,15 @@ class PricingTest {
 				() -> Pricing.calculate(List.of(item("1", "10", "-1", "7"))),
 				() -> Pricing.calculate(List.of(item("1", "10", "0", "101"))));
 		for (Executable call : invalid) {
-			assertThatIllegalArgumentException().isThrownBy(call::execute);
+			assertThatIllegalArgumentException().isThrownBy(call::execute).withMessageStartingWith("items[0]: ");
 		}
 		assertThatIllegalArgumentException().isThrownBy(() -> Pricing.calculate(List.of()))
 			.withMessage(Pricing.NO_ITEMS);
 	}
 
-	private static QuoteItem item(String qty, String price, String discount, String tax) {
-		return new QuoteItem(null, "x", null, new BigDecimal(qty), new BigDecimal(price), new BigDecimal(discount),
-				new BigDecimal(tax), null);
+	private static Pricing.Line item(String qty, String price, String discount, String tax) {
+		return new Pricing.Line(new BigDecimal(qty), new BigDecimal(price), new BigDecimal(discount),
+				new BigDecimal(tax));
 	}
 
 }

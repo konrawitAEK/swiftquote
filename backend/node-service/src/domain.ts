@@ -1,67 +1,111 @@
-// Core SwiftQuote types, independent of transport and storage.
-// Monetary and quantity values are decimal strings or Decimal, never JS numbers.
-import type { Decimal } from 'decimal.js'
+// Core SwiftQuote types, independent of transport and storage. Mirrors backend/go-service/internal/domain.
+// Monetary and quantity values are Decimal, never JS numbers; timestamps are RFC 3339 strings in UTC.
+import type { Money } from './pricing.js'
 
-export const QUOTE_STATUSES = ['draft', 'sent', 'viewed', 'accepted', 'rejected', 'expired'] as const
+export const ROLES = ['admin', 'woc', 'wo', 'rm', 'customer'] as const
+export type Role = (typeof ROLES)[number]
+
+export function isRole(s: string): s is Role {
+  return (ROLES as readonly string[]).includes(s)
+}
+
+/** The contract's enum order. */
+export const QUOTE_STATUSES = [
+  'draft', 'pending_approval', 'approved', 'sent', 'viewed', 'accepted', 'rejected', 'expired',
+] as const
 export type QuoteStatus = (typeof QUOTE_STATUSES)[number]
-
-/** States from which a client may still sign. */
-export const ACCEPTABLE_STATUSES: QuoteStatus[] = ['draft', 'sent', 'viewed']
 
 export function isQuoteStatus(s: string): s is QuoteStatus {
   return (QUOTE_STATUSES as readonly string[]).includes(s)
 }
 
+/** The states a customer can see: the quote has been sent to them. */
+export const CUSTOMER_STATUSES: QuoteStatus[] = ['sent', 'viewed', 'accepted', 'rejected']
+
+/** The states in which a customer may still accept or reject. */
+export const RESPONDABLE_STATUSES: QuoteStatus[] = ['sent', 'viewed']
+
+export type EventAction =
+  | 'created' | 'updated' | 'submitted' | 'approved' | 'returned' | 'sent' | 'viewed' | 'accepted' | 'rejected'
+
+/** The history entries a customer may see. */
+export const CUSTOMER_EVENTS: EventAction[] = ['sent', 'viewed', 'accepted', 'rejected']
+
+/** A lightweight {id, name} reference used in responses. */
+export interface Ref {
+  id: string
+  name: string
+}
+
+/** The authenticated caller, loaded from the database on every request. */
+export interface Actor {
+  userId: string
+  name: string
+  tenantId: string
+  role: Role
+  teamId: string | null
+  clientId: string | null
+}
+
+/** One audit-trail entry. actor is null when a customer acted through the share link. */
+export interface QuoteEvent {
+  action: EventAction
+  actor: Ref | null
+  comment: string | null
+  at: string
+}
+
 export interface QuoteItem {
   id: string
   title: string
-  description: string | null
-  quantity: Decimal
-  unitPrice: Decimal
-  discountPercent: Decimal
-  taxPercent: Decimal
-  lineTotal: Decimal
+  /** null for lines created before categories existed */
+  category: Ref | null
+  description: string
+  quantity: Money
+  unitPrice: Money
+  discountPercent: Money
+  taxPercent: Money
+  lineTotal: Money
 }
 
 export interface Quote {
   id: string
   organizationId: string
   clientId: string
+  clientName: string
   dealId: string | null
   quoteNumber: string
   status: QuoteStatus
   /** YYYY-MM-DD */
   expiryDate: string
-  subtotal: Decimal
-  discountAmount: Decimal
-  taxAmount: Decimal
-  grandTotal: Decimal
+  subtotal: Money
+  discountAmount: Money
+  taxAmount: Money
+  grandTotal: Money
   accessToken: string
   signedBy: string | null
   signatureData: string | null
-  signedAt: Date | null
-  createdAt: Date
+  signedAt: string | null
+  createdBy: Ref | null
+  /** The WO currently leading the creator's team, if any; it decides who may approve. */
+  creatorTeamWo: string | null
   items: QuoteItem[]
+  history: QuoteEvent[]
+}
+
+export interface Category {
+  id: string
+  name: string
+  active: boolean
 }
 
 export interface Client {
   id: string
-  organizationId: string
   name: string
-  email: string | null
-}
-
-/** A user and the tenant membership they log into. */
-export interface Login {
-  userId: string
   email: string
-  passwordHash: string
-  fullName: string
-  organizationId: string
-  role: string
 }
 
-// Failures mapped to ErrorResponse codes by the HTTP layer. Messages mirror the Go service.
+// Failures mapped to ErrorResponse codes by the HTTP layer. Messages are "<kind>: <msg>" like the Go service.
 
 export class NotFoundError extends Error {}
 
@@ -69,8 +113,31 @@ export class ConflictError extends Error {}
 
 export class UnauthorizedError extends Error {}
 
+export class ForbiddenError extends Error {}
+
 export class ValidationError extends Error {
   constructor(readonly details: string[]) {
     super('request validation failed')
+  }
+}
+
+export const notFound = (msg: string) => new NotFoundError(`not found: ${msg}`)
+export const conflict = (msg: string) => new ConflictError(`conflict: ${msg}`)
+export const unauthorized = (msg: string) => new UnauthorizedError(`unauthorized: ${msg}`)
+export const invalid = (detail: string) => new ValidationError([detail])
+
+/** The single 403 used by every backend. */
+export const roleForbidden = () => new ForbiddenError('forbidden: your role cannot perform this action')
+
+/** Collects validation details; check() throws when any were added. */
+export class Problems {
+  readonly details: string[] = []
+
+  add(detail: string): void {
+    this.details.push(detail)
+  }
+
+  check(): void {
+    if (this.details.length > 0) throw new ValidationError(this.details)
   }
 }

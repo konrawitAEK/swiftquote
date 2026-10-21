@@ -2,6 +2,7 @@
 import pg from 'pg'
 import { buildApp } from './app.js'
 import { Repository } from './repository.js'
+import { AdminService, CatalogService, ClientService, DashboardService } from './admin.js'
 import { AuthService, QuoteService } from './services.js'
 
 const env = (key: string, fallback: string) => process.env[key] || fallback
@@ -26,6 +27,10 @@ const app = await buildApp({
   repo,
   auth: new AuthService(repo, jwtSecret),
   quotes: new QuoteService(repo),
+  admin: new AdminService(repo),
+  catalog: new CatalogService(repo),
+  clients: new ClientService(repo),
+  dashboard: new DashboardService(repo),
   corsOrigins: env('CORS_ORIGINS', 'http://localhost:3000,http://localhost:3001,http://localhost:3002')
     .split(',')
     .map((o) => o.trim())
