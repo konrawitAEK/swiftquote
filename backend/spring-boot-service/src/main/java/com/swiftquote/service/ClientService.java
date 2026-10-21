@@ -1,25 +1,31 @@
 package com.swiftquote.service;
 
 import java.util.List;
-import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import com.swiftquote.domain.Actor;
+import com.swiftquote.domain.ApiException;
 import com.swiftquote.domain.Client;
-import com.swiftquote.repository.ClientRepository;
+import com.swiftquote.domain.Roles;
+import com.swiftquote.repository.AuthRepository;
 
+/** The tenant's client directory (backend/go-service/internal/client/service.go). */
 @Service
 public class ClientService {
 
-	private final ClientRepository clients;
+	private final AuthRepository repo;
 
-	public ClientService(ClientRepository clients) {
-		this.clients = clients;
+	public ClientService(AuthRepository repo) {
+		this.repo = repo;
 	}
 
-	/** The tenant's clients ordered by name. */
-	public List<Client> list(UUID orgId) {
-		return this.clients.list(orgId);
+	/** For RMs picking a client and admins linking customers to one. */
+	public List<Client> list(Actor a) {
+		if (!Roles.RM.equals(a.role()) && !Roles.ADMIN.equals(a.role())) {
+			throw ApiException.roleForbidden();
+		}
+		return this.repo.listClients(a.tenantId());
 	}
 
 }
