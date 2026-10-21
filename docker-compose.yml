@@ -1,0 +1,104 @@
+version: '3.9'
+
+services:
+  # Shared Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: swiftquote-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: swiftquote
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - internal-net
+
+  # ----------------- BACKENDS (Only ONE active on 8080) -----------------
+  backend-go:
+    build:
+      context: ./backend/go-service
+      dockerfile: Dockerfile
+    container_name: swiftquote-backend-go
+    profiles: ["go", "all"]
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: password
+      DB_NAME: swiftquote
+      JWT_SECRET: devsecretkey123
+    depends_on:
+      - postgres
+    networks:
+      - internal-net
+
+  backend-spring:
+    build:
+      context: ./backend/spring-boot-service
+      dockerfile: Dockerfile
+    container_name: swiftquote-backend-spring
+    profiles: ["spring"]
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/swiftquote
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: password
+      JWT_SECRET: devsecretkey123
+    depends_on:
+      - postgres
+    networks:
+      - internal-net
+
+  # ----------------- FRONTENDS -----------------
+  frontend-react:
+    build:
+      context: ./frontend/react-mui-app
+      dockerfile: Dockerfile
+    container_name: swiftquote-fe-react
+    profiles: ["react", "all"]
+    ports:
+      - "3000:3000"
+    environment:
+      VITE_API_URL: http://localhost:8080/api/v1
+    networks:
+      - internal-net
+
+  frontend-next:
+    build:
+      context: ./frontend/nextjs-app
+      dockerfile: Dockerfile
+    container_name: swiftquote-fe-next
+    profiles: ["next"]
+    ports:
+      - "3001:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080/api/v1
+    networks:
+      - internal-net
+
+  frontend-angular:
+    build:
+      context: ./frontend/angular-app
+      dockerfile: Dockerfile
+    container_name: swiftquote-fe-angular
+    profiles: ["angular"]
+    ports:
+      - "3002:80"
+    environment:
+      API_URL: http://localhost:8080/api/v1
+    networks:
+      - internal-net
+
+networks:
+  internal-net:
+    driver: bridge
+
+volumes:
+  pgdata:

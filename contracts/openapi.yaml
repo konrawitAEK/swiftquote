@@ -1,0 +1,256 @@
+openapi: 3.0.3
+info:
+  title: SwiftQuote Interchangeable API
+  version: 1.0.0
+  description: Canonical API specification for the SwiftQuote multi-tenant engine.
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local Gateway (either Go or Spring Boot backend)
+
+paths:
+  /auth/login:
+    post:
+      summary: User login
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /quotes:
+    get:
+      summary: List quotations for current tenant
+      tags: [Quotes]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/QuoteStatus'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QuoteSummary'
+    post:
+      summary: Create quotation with real-time recalculation
+      tags: [Quotes]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateQuoteRequest'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuoteDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /public/quotes/{accessToken}:
+    get:
+      summary: Fetch quote details for client portal without auth
+      tags: [ClientPortal]
+      parameters:
+        - name: accessToken
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicQuoteView'
+        '404':
+          description: Quote expired or not found
+
+  /public/quotes/{accessToken}/accept:
+    post:
+      summary: Client submits e-signature to accept proposal
+      tags: [ClientPortal]
+      parameters:
+        - name: accessToken
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptQuoteRequest'
+      responses:
+        '200':
+          description: Accepted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuoteDetail'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Unauthorized:
+      description: Authentication failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    BadRequest:
+      description: Invalid payload or math validation failure
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    QuoteStatus:
+      type: string
+      enum: [draft, sent, viewed, accepted, rejected, expired]
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    AuthResponse:
+      type: object
+      required: [accessToken, tenantId, user]
+      properties:
+        accessToken:
+          type: string
+        tenantId:
+          type: string
+          format: uuid
+        user:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            role: { type: string, enum: [owner, manager, member] }
+
+    QuoteItemInput:
+      type: object
+      required: [title, quantity, unitPrice]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        quantity: { type: number, minimum: 1 }
+        unitPrice: { type: number, minimum: 0 }
+        discountPercent: { type: number, default: 0, minimum: 0, maximum: 100 }
+        taxPercent: { type: number, default: 7, minimum: 0, maximum: 100 }
+
+    CreateQuoteRequest:
+      type: object
+      required: [clientId, quoteNumber, expiryDate, items]
+      properties:
+        clientId: { type: string, format: uuid }
+        dealId: { type: string, format: uuid, nullable: true }
+        quoteNumber: { type: string }
+        expiryDate: { type: string, format: date }
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuoteItemInput'
+
+    QuoteSummary:
+      type: object
+      required: [id, quoteNumber, clientName, status, grandTotal, expiryDate]
+      properties:
+        id: { type: string, format: uuid }
+        quoteNumber: { type: string }
+        clientName: { type: string }
+        status: { $ref: '#/components/schemas/QuoteStatus' }
+        grandTotal: { type: number }
+        expiryDate: { type: string, format: date }
+
+    QuoteDetail:
+      type: object
+      required: [id, quoteNumber, status, subtotal, discountAmount, taxAmount, grandTotal, items]
+      properties:
+        id: { type: string, format: uuid }
+        quoteNumber: { type: string }
+        status: { $ref: '#/components/schemas/QuoteStatus' }
+        subtotal: { type: number }
+        discountAmount: { type: number }
+        taxAmount: { type: number }
+        grandTotal: { type: number }
+        accessToken: { type: string, format: uuid }
+        signedAt: { type: string, format: date-time, nullable: true }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              title: { type: string }
+              quantity: { type: number }
+              unitPrice: { type: number }
+              lineTotal: { type: number }
+
+    PublicQuoteView:
+      type: object
+      required: [quoteNumber, vendorName, grandTotal, items]
+      properties:
+        quoteNumber: { type: string }
+        vendorName: { type: string }
+        vendorLogo: { type: string, nullable: true }
+        grandTotal: { type: number }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              title: { type: string }
+              quantity: { type: number }
+              unitPrice: { type: number }
+              lineTotal: { type: number }
+
+    AcceptQuoteRequest:
+      type: object
+      required: [signerName, signatureDataUrl]
+      properties:
+        signerName: { type: string }
+        signatureDataUrl: { type: string, description: "Base64 canvas image" }
+
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        details: { type: array, items: { type: string }, nullable: true }

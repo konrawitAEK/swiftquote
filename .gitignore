@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.next/
+.angular/
+target/
+bin/
+*.log
+.env
+.idea/
+.vscode/
+.DS_Store
+frontend/shared-contract-client/
