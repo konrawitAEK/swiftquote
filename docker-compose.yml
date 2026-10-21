@@ -42,7 +42,9 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - internal-net
+      internal-net:
+        # Same name for every backend, so server-side frontend code (Next.js) needs no per-backend config.
+        aliases: [api]
 
   backend-spring:
     build:
@@ -62,7 +64,9 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - internal-net
+      internal-net:
+        # Same name for every backend, so server-side frontend code (Next.js) needs no per-backend config.
+        aliases: [api]
 
   backend-node:
     build:
@@ -84,7 +88,9 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - internal-net
+      internal-net:
+        # Same name for every backend, so server-side frontend code (Next.js) needs no per-backend config.
+        aliases: [api]
 
   # ----------------- FRONTENDS -----------------
   frontend-react:
@@ -105,12 +111,16 @@ services:
     build:
       context: ./frontend/nextjs-app
       dockerfile: Dockerfile
+      args:
+        # Build-time: inlined into browser code, which calls the API from the host.
+        NEXT_PUBLIC_API_URL: http://localhost:8080/api/v1
     container_name: swiftquote-fe-next
-    profiles: ["next"]
+    profiles: ["next", "all"]
     ports:
       - "3001:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8080/api/v1
+      # Runtime: Server Components call the API inside the compose network.
+      API_INTERNAL_URL: http://api:8080/api/v1
     networks:
       - internal-net
 
@@ -118,12 +128,13 @@ services:
     build:
       context: ./frontend/angular-app
       dockerfile: Dockerfile
+      args:
+        # Build-time: the browser (on the host) calls the API.
+        API_URL: http://localhost:8080/api/v1
     container_name: swiftquote-fe-angular
-    profiles: ["angular"]
+    profiles: ["angular", "all"]
     ports:
       - "3002:80"
-    environment:
-      API_URL: http://localhost:8080/api/v1
     networks:
       - internal-net
 

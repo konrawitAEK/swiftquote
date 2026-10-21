@@ -1,4 +1,10 @@
-.PHONY: help gen-types test-db test-go test-spring test-node run-go run-spring run-node run-node-react smoke parity bench reset-db dev-db run-go-react run-spring-react run-go-next run-spring-angular stop
+# Any backend with any frontend: run-<go|spring|node>-<react|next|angular>.
+# React on http://localhost:3000, Next.js on :3001, Angular on :3002; the API is always on :8080.
+BACKENDS := go spring node
+FRONTENDS := react next angular
+RUN_MATRIX := $(foreach b,$(BACKENDS),$(foreach f,$(FRONTENDS),run-$(b)-$(f)))
+
+.PHONY: help gen-types test-db test-go test-spring test-node run-go run-spring run-node smoke parity bench reset-db dev-db stop $(RUN_MATRIX)
 
 help:
 	@echo "SwiftQuote Polyglot Commands:"
@@ -6,7 +12,6 @@ help:
 	@echo "  make run-go              - Go Backend + Postgres only (API on :8080)"
 	@echo "  make run-spring          - Spring Boot Backend + Postgres only (API on :8080)"
 	@echo "  make run-node            - Node.js (Fastify) Backend + Postgres only (API on :8080)"
-	@echo "  make run-node-react      - Node.js Backend + React MUI Frontend"
 	@echo "  make smoke               - End-to-end API smoke test against :8080"
 	@echo "  make test-go             - Vet and test the Go backend (+ Postgres if running)"
 	@echo "  make test-spring         - Spring unit + integration tests (needs Docker)"
@@ -14,17 +19,17 @@ help:
 	@echo "  make parity              - Run Go (:8080), Spring (:8081), Node (:8082) and diff responses"
 	@echo "  make bench               - Same three backends, compare throughput one at a time (ab)"
 	@echo "  make reset-db            - Drop the DB volume so migrations re-run"
-	@echo "  make run-go-react        - Go Backend + React MUI Frontend"
-	@echo "  make run-spring-react    - Spring Boot Backend + React MUI Frontend"
-	@echo "  make run-go-next         - Go Backend + Next.js App"
-	@echo "  make run-spring-angular  - Spring Boot Backend + Angular App"
+	@echo "  make run-<be>-<fe>       - be: go|spring|node, fe: react (:3000) | next (:3001) | angular (:3002)"
+	@echo "                             e.g. make run-go-react, make run-spring-next, make run-node-angular"
 	@echo "  make stop                - Shut down all running containers"
 
 OPENAPI_TS := npx --yes openapi-typescript@7.13.0
 
 # Generated types are committed; CI fails if they drift from the contract.
+SCHEMA_TS := frontend/react-mui-app/src/api/schema.d.ts frontend/nextjs-app/src/api/schema.d.ts frontend/angular-app/src/app/api/schema.d.ts
+
 gen-types:
-	$(OPENAPI_TS) contracts/openapi.yaml -o frontend/react-mui-app/src/api/schema.d.ts
+	@for f in $(SCHEMA_TS); do $(OPENAPI_TS) contracts/openapi.yaml -o $$f || exit 1; done
 
 TEST_DB := swiftquote_test
 TEST_DATABASE_URL ?= postgres://postgres:password@localhost:5432/$(TEST_DB)?sslmode=disable
@@ -52,9 +57,6 @@ test-spring:
 
 run-node:
 	docker compose --profile node up --build
-
-run-node-react:
-	docker compose --profile node --profile react up --build
 
 # Like test-go: Postgres-backed tests use a throwaway $(TEST_DB) recreated from db/migrations.
 test-node:
@@ -88,17 +90,9 @@ smoke:
 reset-db:
 	docker compose --profile all --profile go --profile spring --profile node --profile react --profile next --profile angular down -v
 
-run-go-react:
-	docker compose --profile go --profile react up --build
-
-run-spring-react:
-	docker compose --profile spring --profile react up --build
-
-run-go-next:
-	docker compose --profile go --profile next up --build
-
-run-spring-angular:
-	docker compose --profile spring --profile angular up --build
+# run-go-react -> profiles "go" and "react".
+$(RUN_MATRIX): run-%:
+	docker compose --profile $(word 1,$(subst -, ,$*)) --profile $(word 2,$(subst -, ,$*)) up --build
 
 stop:
 	docker compose --profile all --profile go --profile spring --profile node --profile react --profile next --profile angular down
