@@ -1,0 +1,46 @@
+name: Backend Node
+on:
+  push:
+    paths: ["backend/node-service/**", "contracts/fixtures/**", "db/migrations/**", ".github/workflows/ci-backend-node.yml"]
+  pull_request:
+    paths: ["backend/node-service/**", "contracts/fixtures/**", "db/migrations/**", ".github/workflows/ci-backend-node.yml"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: swiftquote_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgres://postgres:password@localhost:5432/swiftquote_test
+    defaults:
+      run:
+        working-directory: backend/node-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/node-service/package-lock.json
+      - run: npm ci
+      - name: Apply migrations
+        working-directory: .
+        env:
+          PGPASSWORD: password
+        run: |
+          for f in $(ls db/migrations/V*.sql | sort -V); do
+            psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d swiftquote_test -f "$f"
+          done
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

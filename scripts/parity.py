@@ -13,6 +13,7 @@ Exit code 1 if any step differs.
 """
 import json
 import re
+import secrets
 import sys
 import time
 import urllib.error
@@ -127,7 +128,8 @@ def main():
     if len(sys.argv) != 3:
         sys.exit(__doc__)
     a_base, b_base = sys.argv[1].rstrip("/"), sys.argv[2].rstrip("/")
-    run = str(int(time.time()))
+    # Unique per invocation: several parity runs may hit the same database within one second.
+    run = f"{int(time.time())}{secrets.token_hex(2)}"
     a_prefix, b_prefix = f"PA{run}-", f"PB{run}-"
     a_norm, b_norm = Normaliser(a_prefix), Normaliser(b_prefix)
 

@@ -20,7 +20,7 @@ echo "$LOGIN"
 TOKEN=$(echo "$LOGIN" | field accessToken)
 
 step "POST /quotes"
-NUMBER="SMOKE-$(date +%s)"
+NUMBER="SMOKE-$(date +%s)-$RANDOM"
 EXPIRY=$(python3 -c 'import datetime; print(datetime.date.today() + datetime.timedelta(days=30))')
 QUOTE=$(curl -sf -X POST "$BASE/quotes" -H "$JSON" -H "Authorization: Bearer $TOKEN" -d @- <<EOF
 {
