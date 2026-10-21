@@ -1,0 +1,165 @@
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate" />
+} @else {
+  <form class="stack-lg" (submit)="submit($event)">
+    <h1 class="page-title">{{ heading() }}</h1>
+
+    @if (locked(); as message) {
+      <app-alert severity="info">
+        {{ message }}
+        <a alertAction mat-button [routerLink]="['/quotes', id()]">View</a>
+      </app-alert>
+    }
+    @if (error(); as e) {
+      <app-alert severity="error">{{ e }}</app-alert>
+    }
+
+    <mat-card>
+      <mat-card-content class="header-fields">
+        <mat-form-field>
+          <mat-label>Client</mat-label>
+          <select matNativeControl required [value]="clientId()" (change)="clientId.set(valueOf($event))">
+            <option value=""></option>
+            @for (c of clients(); track c.id) {
+              <option [value]="c.id" [selected]="c.id === clientId()">{{ c.name }}</option>
+            }
+          </select>
+        </mat-form-field>
+        <mat-form-field>
+          <mat-label>Quote number</mat-label>
+          <input matInput required [value]="quoteNumber()" (input)="quoteNumber.set(valueOf($event))" />
+        </mat-form-field>
+        <mat-form-field>
+          <mat-label>Expiry date</mat-label>
+          <input
+            matInput
+            type="date"
+            required
+            [min]="today"
+            [value]="expiryDate()"
+            (input)="expiryDate.set(valueOf($event))"
+          />
+        </mat-form-field>
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card>
+      <mat-card-content>
+        <h2 class="section-title lines-title">Line items</h2>
+        <div class="lines">
+          @for (l of lines(); track l.key; let i = $index) {
+            <div class="line">
+              <mat-form-field class="dense">
+                <mat-label>Item</mat-label>
+                <input matInput required [value]="l.title" (input)="update(l.key, 'title', valueOf($event))" />
+              </mat-form-field>
+              <mat-form-field class="dense">
+                <mat-label>Category</mat-label>
+                <select
+                  matNativeControl
+                  required
+                  [value]="l.categoryId"
+                  (change)="update(l.key, 'categoryId', valueOf($event))"
+                >
+                  <option value=""></option>
+                  @for (c of categoryOptions(l.categoryId); track c.id) {
+                    <option [value]="c.id" [disabled]="!c.active" [selected]="c.id === l.categoryId">
+                      {{ c.active ? c.name : c.name + ' (retired)' }}
+                    </option>
+                  }
+                </select>
+              </mat-form-field>
+              <mat-form-field class="dense">
+                <mat-label>Qty</mat-label>
+                <input
+                  matInput
+                  type="number"
+                  min="1"
+                  step="any"
+                  required
+                  [value]="l.quantity"
+                  (input)="update(l.key, 'quantity', valueOf($event))"
+                />
+              </mat-form-field>
+              <mat-form-field class="dense">
+                <mat-label>Unit price</mat-label>
+                <input
+                  matInput
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  required
+                  [value]="l.unitPrice"
+                  (input)="update(l.key, 'unitPrice', valueOf($event))"
+                />
+              </mat-form-field>
+              <mat-form-field class="dense">
+                <mat-label>Discount</mat-label>
+                <input
+                  matInput
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="any"
+                  [value]="l.discountPercent"
+                  (input)="update(l.key, 'discountPercent', valueOf($event))"
+                />
+                <span matTextSuffix>%</span>
+              </mat-form-field>
+              <mat-form-field class="dense">
+                <mat-label>VAT</mat-label>
+                <input
+                  matInput
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="any"
+                  [value]="l.taxPercent"
+                  (input)="update(l.key, 'taxPercent', valueOf($event))"
+                />
+                <span matTextSuffix>%</span>
+              </mat-form-field>
+              <span class="line-total num">{{ money(totals().lineTotals[i]) }}</span>
+              <span matTooltip="Remove line">
+                <button
+                  mat-icon-button
+                  type="button"
+                  aria-label="Remove line"
+                  [disabled]="lines().length === 1"
+                  (click)="removeLine(l.key)"
+                >
+                  <mat-icon>delete_outline</mat-icon>
+                </button>
+              </span>
+            </div>
+          }
+        </div>
+        <button mat-button type="button" class="add" (click)="addLine()"><mat-icon>add</mat-icon>Add line</button>
+      </mat-card-content>
+    </mat-card>
+
+    <div class="footer">
+      <p class="body2 muted note">
+        Totals update as you type using the same rounding rules as the server. Saving keeps the quotation as a
+        draft; submit it for approval from its page.
+      </p>
+      <mat-card class="totals">
+        <mat-card-content class="stack-sm">
+          <app-total-row label="Subtotal" [value]="money(totals().subtotal)" />
+          <app-total-row label="Discount" [value]="'− ' + money(totals().discountAmount)" />
+          <app-total-row label="VAT" [value]="money(totals().taxAmount)" />
+          <hr />
+          <app-total-row label="Grand total" [value]="money(totals().grandTotal)" [strong]="true" />
+          <button
+            mat-flat-button
+            type="submit"
+            class="save"
+            [disabled]="busy() || !clientId() || locked() !== null"
+          >
+            {{ busy() ? 'Saving…' : editing() ? 'Save changes' : 'Save draft' }}
+          </button>
+        </mat-card-content>
+      </mat-card>
+    </div>
+  </form>
+}

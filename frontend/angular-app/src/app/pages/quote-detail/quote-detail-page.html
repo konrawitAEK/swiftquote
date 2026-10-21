@@ -1,0 +1,131 @@
+@if (error(); as e) {
+  <app-alert severity="error">{{ e }}</app-alert>
+} @else if (quote(); as q) {
+  <div class="stack-lg">
+    <div>
+      <a mat-button routerLink="/quotes" class="back"><mat-icon>arrow_back</mat-icon>Quotations</a>
+    </div>
+
+    <div class="spread">
+      <div>
+        <div class="row title-row">
+          <h1 class="page-title">{{ q.quoteNumber }}</h1>
+          <app-status-chip [status]="q.status" />
+        </div>
+        <div class="muted">
+          {{ q.clientName }}@if (q.createdBy) {
+            · by {{ q.createdBy.name }}
+          }
+          · valid until {{ q.expiryDate }}
+        </div>
+      </div>
+      @if (can(); as c) {
+        <div class="row actions">
+          @if (c.edit) {
+            <a mat-stroked-button [routerLink]="['/quotes', q.id, 'edit']">Edit</a>
+          }
+          @if (c.submit) {
+            <button mat-flat-button type="button" (click)="openDialog(dialogs.submit)">Submit for approval</button>
+          }
+          @if (c.return) {
+            <button mat-stroked-button type="button" class="warn" (click)="openDialog(dialogs.return)">
+              Return for changes
+            </button>
+          }
+          @if (c.approve) {
+            <button mat-flat-button type="button" class="success" (click)="openDialog(dialogs.approve)">
+              Approve
+            </button>
+          }
+          @if (c.send) {
+            <button mat-flat-button type="button" [disabled]="busy()" (click)="send()">Send to customer</button>
+          }
+          @if (c.respond) {
+            <button mat-stroked-button type="button" class="danger" (click)="openDialog(dialogs.reject)">
+              Decline
+            </button>
+          }
+        </div>
+      }
+    </div>
+
+    @if (actionError(); as e) {
+      <app-alert severity="error">{{ e }}</app-alert>
+    }
+    @if (q.status === 'pending_approval' && role() === 'rm') {
+      <app-alert severity="info">Waiting for your WO to approve. You can send it once it is approved.</app-alert>
+    }
+    @if (q.status === 'approved' && role() === 'rm') {
+      <app-alert severity="success">Approved. Send it to the customer when you are ready.</app-alert>
+    }
+    @if (q.status === 'accepted' && q.signedAt) {
+      <app-alert severity="success">
+        Accepted by {{ q.signedBy ?? 'the customer' }} on {{ when(q.signedAt) }}
+      </app-alert>
+    }
+
+    @if (shareToken(); as token) {
+      <mat-card>
+        <mat-card-content class="share">
+          <app-share-link [accessToken]="token" />
+          <a mat-button [href]="shareUrl(token)" target="_blank" rel="noopener" class="client-view">
+            Client view<mat-icon iconPositionEnd>open_in_new</mat-icon>
+          </a>
+        </mat-card-content>
+      </mat-card>
+    }
+
+    <mat-card>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th class="right">Qty</th>
+              <th class="right">Unit price</th>
+              <th class="right">Discount</th>
+              <th class="right">Amount (excl. VAT)</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (it of q.items; track $index) {
+              <tr>
+                <td>
+                  {{ it.title }}
+                  <div class="body2 muted">{{ it.category?.name ?? 'Uncategorized' }}</div>
+                  @if (it.description) {
+                    <div class="body2 muted">{{ it.description }}</div>
+                  }
+                </td>
+                <td class="right">{{ it.quantity }}</td>
+                <td class="right">{{ money(it.unitPrice) }}</td>
+                <td class="right">{{ discount(it.discountPercent) }}</td>
+                <td class="right">{{ money(it.lineTotal) }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <mat-card-content class="totals">
+        <app-total-row label="Subtotal" [value]="money(q.subtotal)" />
+        <app-total-row label="Discount" [value]="'− ' + money(q.discountAmount)" />
+        <app-total-row label="VAT" [value]="money(q.taxAmount)" />
+        <hr />
+        <app-total-row label="Grand total" [value]="money(q.grandTotal)" [strong]="true" />
+      </mat-card-content>
+    </mat-card>
+
+    @if (can()?.respond) {
+      <app-accept-card [busy]="busy()" (accept)="accept($event)" />
+    }
+
+    <mat-card>
+      <mat-card-content class="history">
+        <h2 class="section-title">History</h2>
+        <app-quote-history [events]="q.history" />
+      </mat-card-content>
+    </mat-card>
+  </div>
+} @else {
+  <mat-progress-bar mode="indeterminate" />
+}

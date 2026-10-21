@@ -1,0 +1,113 @@
+<div class="container">
+  @switch (state().kind) {
+    @case ('loading') {
+      <div class="spinner"><mat-spinner diameter="40" /></div>
+    }
+    @case ('error') {
+      <app-alert severity="warning">
+        This quotation link is invalid or has expired. Please contact the sender for a new link.
+      </app-alert>
+    }
+  }
+
+  @if (state(); as s) {
+    @if (s.kind === 'ready') {
+      <div class="stack-lg">
+        <div>
+          <div class="overline muted">Quotation from</div>
+          <h1 class="page-title">{{ s.quote.vendorName }}</h1>
+          <div class="muted">No. {{ s.quote.quoteNumber }} · Valid until {{ s.quote.expiryDate }}</div>
+        </div>
+
+        <mat-card>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th class="right">Qty</th>
+                  <th class="right">Unit price</th>
+                  <th class="right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (it of s.quote.items; track $index) {
+                  <tr>
+                    <td>{{ it.title }}</td>
+                    <td class="right">{{ it.quantity }}</td>
+                    <td class="right">{{ money(it.unitPrice) }}</td>
+                    <td class="right">{{ money(it.lineTotal) }}</td>
+                  </tr>
+                }
+                <tr class="no-border">
+                  <td colspan="3" class="right strong">Grand total (incl. VAT)</td>
+                  <td class="right strong">{{ money(s.quote.grandTotal) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </mat-card>
+
+        @if (acceptedAt(); as at) {
+          <app-alert severity="success" icon="check_circle">
+            Thank you, {{ signerName() }}. This quotation was accepted on {{ when(at) }}.
+          </app-alert>
+        } @else if (s.quote.status === 'accepted') {
+          <app-alert severity="success" icon="check_circle">
+            This quotation was accepted{{ s.quote.signedBy ? ' by ' + s.quote.signedBy : '' }}{{
+              s.quote.signedAt ? ' on ' + when(s.quote.signedAt) : ''
+            }}.
+          </app-alert>
+        } @else if (s.quote.status === 'rejected') {
+          <app-alert severity="info">
+            This quotation was declined. Please contact the sender if this is a mistake.
+          </app-alert>
+        } @else {
+          <mat-card>
+            <mat-card-content>
+              <form class="stack form" (submit)="accept($event)">
+                <h2 class="section-title">Accept this quotation</h2>
+                @if (submitError(); as e) {
+                  <app-alert severity="error">{{ e }}</app-alert>
+                }
+                <mat-form-field>
+                  <mat-label>Your full name</mat-label>
+                  <input matInput required [value]="signerName()" (input)="signerName.set(valueOf($event))" />
+                </mat-form-field>
+                <app-signature-pad [disabled]="busy()" (signatureChange)="signature.set($event)" />
+                <button mat-flat-button type="submit" class="big" [disabled]="busy()">
+                  {{ busy() ? 'Submitting…' : 'Sign and accept' }}
+                </button>
+                @if (declining()) {
+                  <div class="stack-sm">
+                    <mat-form-field>
+                      <mat-label>Reason for declining (optional)</mat-label>
+                      <textarea
+                        matInput
+                        rows="2"
+                        [value]="declineReason()"
+                        (input)="declineReason.set(valueOf($event))"
+                      ></textarea>
+                    </mat-form-field>
+                    <div class="row">
+                      <button mat-stroked-button type="button" class="danger" [disabled]="busy()" (click)="decline()">
+                        Confirm decline
+                      </button>
+                      <button mat-button type="button" [disabled]="busy()" (click)="declining.set(false)">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                } @else {
+                  <button mat-button type="button" class="danger-text" [disabled]="busy()" (click)="declining.set(true)">
+                    Decline this quotation
+                  </button>
+                }
+              </form>
+            </mat-card-content>
+          </mat-card>
+        }
+      </div>
+    }
+  }
+</div>

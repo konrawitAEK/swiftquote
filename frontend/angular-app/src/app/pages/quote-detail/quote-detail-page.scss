@@ -1,0 +1,70 @@
+.back {
+  margin-left: -8px;
+}
+
+.title-row {
+  gap: 16px;
+}
+
+.actions {
+  align-items: flex-start;
+  align-self: flex-start;
+}
+
+.warn {
+  --mat-button-outlined-label-text-color: var(--sq-warning);
+  --mat-button-outlined-outline-color: var(--sq-warning);
+}
+
+.danger {
+  --mat-button-outlined-label-text-color: var(--sq-error);
+  --mat-button-outlined-outline-color: var(--sq-error);
+}
+
+.success {
+  --mat-button-filled-container-color: var(--sq-success);
+  --mat-button-filled-label-text-color: #fff;
+}
+
+.share {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 16px !important;
+}
+
+.client-view {
+  flex-shrink: 0;
+}
+
+.totals {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 340px;
+  box-sizing: border-box;
+  margin-left: auto;
+  padding-top: 16px !important;
+}
+
+.history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 16px !important;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+  width: 100%;
+  margin: 0;
+}
+
+@media (max-width: 599px) {
+  .share {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

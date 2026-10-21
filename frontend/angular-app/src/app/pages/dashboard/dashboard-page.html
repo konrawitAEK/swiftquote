@@ -1,0 +1,98 @@
+<div class="stack-lg">
+  <div>
+    <h1 class="page-title">Sales dashboard</h1>
+    <div class="muted">Quotations created in the selected period</div>
+  </div>
+
+  <!-- One control row: view, then period. -->
+  <div class="controls">
+    <div class="row toggles">
+      <mat-button-toggle-group
+        hideSingleSelectionIndicator
+        aria-label="View"
+        [value]="view()"
+        (change)="setView($event.value)"
+      >
+        <mat-button-toggle value="won">Sold</mat-button-toggle>
+        <mat-button-toggle value="pending">Pending</mat-button-toggle>
+        <mat-button-toggle value="category">By product category</mat-button-toggle>
+      </mat-button-toggle-group>
+      @if (view() === 'category') {
+        <mat-button-toggle-group
+          class="sub"
+          hideSingleSelectionIndicator
+          aria-label="Measure"
+          [value]="categoryMeasure()"
+          (change)="setCategoryMeasure($event.value)"
+        >
+          <mat-button-toggle value="won">Sold</mat-button-toggle>
+          <mat-button-toggle value="pending">Pending</mat-button-toggle>
+        </mat-button-toggle-group>
+      }
+    </div>
+    <div class="row dates">
+      <mat-form-field class="dense">
+        <mat-label>From</mat-label>
+        <input matInput type="date" [value]="from()" (input)="from.set(dateValue($event))" />
+      </mat-form-field>
+      <mat-form-field class="dense">
+        <mat-label>To</mat-label>
+        <input matInput type="date" [value]="to()" (input)="to.set(dateValue($event))" />
+      </mat-form-field>
+      @if (from() || to()) {
+        <button mat-button type="button" (click)="allTime()">All time</button>
+      }
+    </div>
+  </div>
+
+  @if (error(); as e) {
+    <app-alert severity="error">{{ e }}</app-alert>
+  }
+
+  @if (data(); as d) {
+    <div class="tiles">
+      @for (t of tiles(); track t.label) {
+        <app-stat-tile [label]="t.label" [value]="t.value" [hint]="t.hint" [hero]="t.hero ?? false" />
+      }
+    </div>
+
+    @if (view() === 'category') {
+      <app-category-breakdown [data]="d" [measure]="measure()" />
+    } @else {
+      <mat-card>
+        <mat-card-content class="pad">
+          <h2 class="section-title">{{ view() === 'won' ? 'Sold by month' : 'Pending by expiry month' }}</h2>
+          <div class="body2 muted chart-sub">
+            {{
+              view() === 'won'
+                ? 'Grand total incl. VAT, by the month the customer signed'
+                : 'Grand total incl. VAT of quotes waiting on the customer, by the month they expire'
+            }}
+          </div>
+          <app-monthly-bars
+            [points]="monthPoints()"
+            [empty]="view() === 'won' ? 'No accepted quotations in this period yet.' : 'Nothing is waiting on customers.'"
+          />
+        </mat-card-content>
+      </mat-card>
+    }
+
+    <mat-card>
+      <mat-card-content class="pad">
+        <h2 class="section-title pipeline-title">Pipeline by status</h2>
+        <div class="row pipeline">
+          @for (s of pipeline(); track s.status) {
+            <span class="row">
+              <app-status-chip [status]="s.status" />
+              <span class="num">{{ s.count }}</span>
+            </span>
+          }
+        </div>
+      </mat-card-content>
+    </mat-card>
+
+    <app-rank-tables [data]="d" [measure]="measure()" />
+  } @else if (!error()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+</div>
