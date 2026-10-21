@@ -1,11 +1,14 @@
-.PHONY: help gen-types test-go run-go smoke reset-db dev-db run-go-react run-spring-react run-go-next run-spring-angular stop
+.PHONY: help gen-types test-go test-spring run-go run-spring smoke parity reset-db dev-db run-go-react run-spring-react run-go-next run-spring-angular stop
 
 help:
 	@echo "SwiftQuote Polyglot Commands:"
 	@echo "  make gen-types           - Generate TypeScript API types from openapi.yaml"
 	@echo "  make run-go              - Go Backend + Postgres only (API on :8080)"
+	@echo "  make run-spring          - Spring Boot Backend + Postgres only (API on :8080)"
 	@echo "  make smoke               - End-to-end API smoke test against :8080"
 	@echo "  make test-go             - Vet and test the Go backend (+ Postgres if running)"
+	@echo "  make test-spring         - Spring unit + integration tests (needs Docker)"
+	@echo "  make parity              - Run Go (:8080) and Spring (:8081) side by side and diff responses"
 	@echo "  make reset-db            - Drop the DB volume so migrations re-run"
 	@echo "  make run-go-react        - Go Backend + React MUI Frontend"
 	@echo "  make run-spring-react    - Spring Boot Backend + React MUI Frontend"
@@ -39,6 +42,17 @@ test-go:
 
 run-go:
 	docker compose --profile go up --build
+
+run-spring:
+	docker compose --profile spring up --build
+
+test-spring:
+	cd backend/spring-boot-service && ./mvnw -B verify
+
+parity:
+	SPRING_PORT=8081 docker compose --profile go --profile spring up -d --build --wait
+	scripts/smoke.sh http://localhost:8081/api/v1 >/dev/null
+	scripts/parity.py http://localhost:8080/api/v1 http://localhost:8081/api/v1
 
 smoke:
 	scripts/smoke.sh

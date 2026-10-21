@@ -28,5 +28,16 @@ make reset-db      # wipe the DB volume so migrations and seed re-run
 Dev login: `demo@swiftquote.dev` / `password`, demo client id `00000000-0000-4000-8000-000000000003`.
 Health check: `curl localhost:8080/healthz`.
 
-Without Docker: `cd backend/go-service && JWT_SECRET=dev go run ./cmd/server` uses in-memory storage
+Without Docker: `cd backend/go-service && JWT_SECRET=swiftquote-dev-only-jwt-secret-change-me go run ./cmd/server` uses in-memory storage
 (`STORAGE=memory`, the default), seeded with the same demo data and lost on restart.
+
+## Run the Spring Boot backend
+
+Same API, same port, same database. Any frontend works against it unchanged.
+
+```bash
+make run-spring      # Postgres + Spring API on http://localhost:8080
+make run-spring-react
+make test-spring     # unit + integration tests (Testcontainers, needs Docker)
+make parity          # Go on :8080 and Spring on :8081, diffs every response
+```

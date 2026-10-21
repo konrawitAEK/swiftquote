@@ -10,6 +10,9 @@ JSON='Content-Type: application/json'
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 field() { python3 -c "import sys, json; print(json.load(sys.stdin)['$1'])"; }
 
+step "Waiting for ${BASE%/api/v1}/healthz"
+curl -sf --retry 30 --retry-all-errors --retry-delay 1 "${BASE%/api/v1}/healthz"; echo
+
 step "POST /auth/login"
 LOGIN=$(curl -sf -X POST "$BASE/auth/login" -H "$JSON" \
   -d '{"email":"demo@swiftquote.dev","password":"password"}')

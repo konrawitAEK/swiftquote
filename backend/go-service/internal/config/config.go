@@ -24,8 +24,9 @@ func Load() (Config, error) {
 		Storage:     getenv("STORAGE", "memory"),
 		CORSOrigins: getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001,http://localhost:3002"),
 	}
-	if cfg.JWTSecret == "" {
-		return Config{}, errors.New("JWT_SECRET is required")
+	// HS256 needs a key at least as long as the hash (32 bytes); Spring's JWT library enforces this too.
+	if len(cfg.JWTSecret) < 32 {
+		return Config{}, errors.New("JWT_SECRET is required and must be at least 32 bytes")
 	}
 	if cfg.Storage != "memory" && cfg.Storage != "postgres" {
 		return Config{}, fmt.Errorf("STORAGE must be memory or postgres, got %q", cfg.Storage)
