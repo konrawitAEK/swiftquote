@@ -13,7 +13,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** User login */
+        /** User login (inactive users cannot log in) */
         post: operations["login"];
         delete?: never;
         options?: never;
@@ -28,7 +28,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List clients for current tenant */
+        /** List clients for current tenant (rm, admin) */
         get: operations["listClients"];
         put?: never;
         post?: never;
@@ -45,10 +45,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List quotations for current tenant */
+        /**
+         * List quotations visible to the caller
+         * @description rm: quotes they created. wo: quotes created by RMs in teams they lead. woc: all quotes. customer: their client's quotes in sent, viewed, accepted or rejected. admin: 403. Newest first.
+         */
         get: operations["listQuotes"];
         put?: never;
-        /** Create quotation with real-time recalculation */
+        /** Create a draft quotation (rm) */
         post: operations["createQuote"];
         delete?: never;
         options?: never;
@@ -60,12 +63,229 @@ export interface paths {
         parameters: {
             query?: never;
             header?: never;
+            path: {
+                id: components["parameters"]["QuoteId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get one visible quotation with its history
+         * @description A customer opening a sent quote marks it viewed. Customers only see customer-facing history events.
+         */
+        get: operations["getQuote"];
+        /** Replace a draft quotation (its creator only) */
+        put: operations["updateQuote"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/quotes/{id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["QuoteId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit a draft for approval (its creator; requires a team with a WO) */
+        post: operations["submitQuote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/quotes/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["QuoteId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a pending quote (WO leading the creator's team) */
+        post: operations["approveQuote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/quotes/{id}/return": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["QuoteId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Return a pending quote to draft for changes (WO leading the creator's team; comment required) */
+        post: operations["returnQuote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/quotes/{id}/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["QuoteId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send an approved, unexpired quote to the customer (its creator) */
+        post: operations["sendQuote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/quotes/{id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["QuoteId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept and sign a sent quote (customer of its client) */
+        post: operations["acceptQuote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/quotes/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["QuoteId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decline a sent quote (customer of its client) */
+        post: operations["rejectQuote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboard/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get one quotation of the current tenant, including its share token */
-        get: operations["getQuote"];
+        /**
+         * Sales summary (woc)
+         * @description Covers quotes whose creation date (UTC) is within [from, to], both optional and inclusive. "Sent" counts quotes in sent, viewed, accepted or rejected. conversionRate = acceptedCount / sentCount rounded half-up to 4 decimals (0 when nothing was sent).
+         */
+        get: operations["getDashboardSummary"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all users of the tenant (admin) */
+        get: operations["listUsers"];
+        put?: never;
+        /** Add a user (admin) */
+        post: operations["createUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace a user's name, role, team, client and active flag; optionally reset the password (admin)
+         * @description Removing someone is done by setting active to false; their history is kept. Admins cannot deactivate themselves or change their own role.
+         */
+        put: operations["updateUser"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List teams with their WO and RMs (admin) */
+        get: operations["listTeams"];
+        put?: never;
+        /** Create a team led by a WO (admin) */
+        post: operations["createTeam"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/teams/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Rename a team or change its WO (admin) */
+        put: operations["updateTeam"];
         post?: never;
         delete?: never;
         options?: never;
@@ -77,10 +297,15 @@ export interface paths {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                accessToken: components["parameters"]["AccessToken"];
+            };
             cookie?: never;
         };
-        /** Fetch quote details for client portal without auth */
+        /**
+         * Fetch a sent quote by its share link, without login
+         * @description Only quotes in sent, viewed, accepted or rejected are reachable; opening a sent quote marks it viewed.
+         */
         get: operations["getPublicQuote"];
         put?: never;
         post?: never;
@@ -94,13 +319,34 @@ export interface paths {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                accessToken: components["parameters"]["AccessToken"];
+            };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Client submits e-signature to accept proposal */
+        /** Accept and sign by share link */
         post: operations["acceptPublicQuote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/quotes/{accessToken}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accessToken: components["parameters"]["AccessToken"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decline by share link */
+        post: operations["rejectPublicQuote"];
         delete?: never;
         options?: never;
         head?: never;
@@ -112,7 +358,16 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /** @enum {string} */
-        QuoteStatus: "draft" | "sent" | "viewed" | "accepted" | "rejected" | "expired";
+        QuoteStatus: "draft" | "pending_approval" | "approved" | "sent" | "viewed" | "accepted" | "rejected" | "expired";
+        /** @enum {string} */
+        Role: "admin" | "woc" | "wo" | "rm" | "customer";
+        /** @enum {string} */
+        QuoteEventAction: "created" | "updated" | "submitted" | "approved" | "returned" | "sent" | "viewed" | "accepted" | "rejected";
+        UserRef: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
         LoginRequest: {
             /** Format: email */
             email: string;
@@ -124,10 +379,9 @@ export interface components {
             tenantId: string;
             user: {
                 /** Format: uuid */
-                id?: string;
-                name?: string;
-                /** @enum {string} */
-                role?: "owner" | "manager" | "member";
+                id: string;
+                name: string;
+                role: components["schemas"]["Role"];
             };
         };
         Client: {
@@ -157,6 +411,9 @@ export interface components {
             expiryDate: string;
             items: components["schemas"]["QuoteItemInput"][];
         };
+        CommentRequest: {
+            comment?: string | null;
+        };
         QuoteSummary: {
             /** Format: uuid */
             id: string;
@@ -166,12 +423,35 @@ export interface components {
             grandTotal: number;
             /** Format: date */
             expiryDate: string;
+            createdBy: components["schemas"]["UserRef"] | null;
+        };
+        QuoteItemView: {
+            title: string;
+            description: string | null;
+            quantity: number;
+            unitPrice: number;
+            discountPercent: number;
+            taxPercent: number;
+            /** @description after discount, before VAT */
+            lineTotal: number;
+        };
+        QuoteEvent: {
+            action: components["schemas"]["QuoteEventAction"];
+            /** @description null when the customer acted through the share link */
+            actor?: components["schemas"]["UserRef"] | null;
+            comment?: string | null;
+            /** Format: date-time */
+            at: string;
         };
         QuoteDetail: {
             /** Format: uuid */
             id: string;
             quoteNumber: string;
             status: components["schemas"]["QuoteStatus"];
+            /** Format: uuid */
+            clientId: string;
+            clientName: string;
+            createdBy?: components["schemas"]["UserRef"] | null;
             /** Format: date */
             expiryDate: string;
             subtotal: number;
@@ -183,12 +463,9 @@ export interface components {
             signedBy?: string | null;
             /** Format: date-time */
             signedAt?: string | null;
-            items: {
-                title?: string;
-                quantity?: number;
-                unitPrice?: number;
-                lineTotal?: number;
-            }[];
+            items: components["schemas"]["QuoteItemView"][];
+            /** @description Oldest first. Customers only receive sent, viewed, accepted and rejected events. */
+            history: components["schemas"]["QuoteEvent"][];
         };
         PublicQuoteView: {
             quoteNumber: string;
@@ -201,27 +478,135 @@ export interface components {
             vendorName: string;
             vendorLogo?: string | null;
             grandTotal: number;
-            items: {
-                title?: string;
-                quantity?: number;
-                unitPrice?: number;
-                lineTotal?: number;
-            }[];
+            items: components["schemas"]["QuoteItemView"][];
         };
         AcceptQuoteRequest: {
             signerName: string;
             /** @description Base64 canvas image */
             signatureDataUrl: string;
         };
+        DashboardSummary: {
+            /** Format: date */
+            from: string | null;
+            /** Format: date */
+            to: string | null;
+            acceptedAmount: number;
+            acceptedCount: number;
+            sentCount: number;
+            /** @description 0 to 1, 4 decimals */
+            conversionRate: number;
+            /** @description Every QuoteStatus in enum order, including zero counts */
+            byStatus: {
+                status: components["schemas"]["QuoteStatus"];
+                count: number;
+                amount: number;
+            }[];
+            /** @description Accepted quotes grouped by the UTC month they were signed, ascending; months without sales are omitted */
+            byMonth: {
+                /** @example 2026-10 */
+                month: string;
+                acceptedCount: number;
+                acceptedAmount: number;
+            }[];
+            /** @description Every RM with at least one quote in range, by acceptedAmount desc then name */
+            byRm: {
+                user: components["schemas"]["UserRef"];
+                team: string | null;
+                quoteCount: number;
+                sentCount: number;
+                acceptedCount: number;
+                acceptedAmount: number;
+            }[];
+            /** @description Every team, by acceptedAmount desc then name; counts quotes of its current RMs */
+            byTeam: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                acceptedCount: number;
+                acceptedAmount: number;
+            }[];
+        };
+        AdminUser: {
+            /** Format: uuid */
+            id: string;
+            /** Format: email */
+            email: string;
+            name: string;
+            role: components["schemas"]["Role"];
+            active: boolean;
+            /** @description The team an RM belongs to */
+            team?: components["schemas"]["UserRef"] | null;
+            /** @description The client a customer belongs to */
+            client?: components["schemas"]["UserRef"] | null;
+        };
+        CreateUserRequest: {
+            /** Format: email */
+            email: string;
+            name: string;
+            password: string;
+            role: components["schemas"]["Role"];
+            /**
+             * Format: uuid
+             * @description rm only
+             */
+            teamId?: string | null;
+            /**
+             * Format: uuid
+             * @description required for customer, otherwise must be null
+             */
+            clientId?: string | null;
+        };
+        UpdateUserRequest: {
+            name: string;
+            role: components["schemas"]["Role"];
+            active: boolean;
+            /**
+             * Format: uuid
+             * @description rm only
+             */
+            teamId?: string | null;
+            /**
+             * Format: uuid
+             * @description required for customer, otherwise must be null
+             */
+            clientId?: string | null;
+            /** @description set to reset the password */
+            password?: string | null;
+        };
+        Team: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            wo: components["schemas"]["UserRef"] | null;
+            /** @description Active RMs in the team, by name */
+            members: components["schemas"]["UserRef"][];
+        };
+        TeamRequest: {
+            name: string;
+            /**
+             * Format: uuid
+             * @description an active user with role wo
+             */
+            woUserId: string;
+        };
         ErrorResponse: {
             /** @enum {string} */
-            code: "VALIDATION_ERROR" | "UNAUTHORIZED" | "NOT_FOUND" | "CONFLICT" | "INTERNAL_ERROR";
+            code: "VALIDATION_ERROR" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "CONFLICT" | "INTERNAL_ERROR";
             message: string;
             details?: string[] | null;
         };
     };
     responses: {
-        /** @description Authentication failed */
+        /** @description The quotation after the action */
+        QuoteDetailResponse: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["QuoteDetail"];
+            };
+        };
+        /** @description Missing, invalid or expired session, or the account is inactive */
         Unauthorized: {
             headers: {
                 [name: string]: unknown;
@@ -230,7 +615,16 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description Quote expired or not found (also returned for malformed access tokens) */
+        /** @description The caller's role may not perform this action */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /** @description Not found (also returned for malformed ids and tokens) */
         NotFound: {
             headers: {
                 [name: string]: unknown;
@@ -239,7 +633,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description No quotation with this id in the current tenant (also returned for malformed ids) */
+        /** @description No quotation with this id visible to the caller (also returned for malformed ids) */
         QuoteNotFound: {
             headers: {
                 [name: string]: unknown;
@@ -248,7 +642,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description Duplicate quoteNumber within the tenant, or quote can no longer be accepted */
+        /** @description Duplicate key, or the action is not allowed in the current state */
         Conflict: {
             headers: {
                 [name: string]: unknown;
@@ -267,7 +661,10 @@ export interface components {
             };
         };
     };
-    parameters: never;
+    parameters: {
+        QuoteId: string;
+        AccessToken: string;
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
@@ -318,6 +715,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listQuotes: {
@@ -331,7 +729,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Quotations visible to the current tenant */
+            /** @description Visible quotations */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -342,6 +740,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     createQuote: {
@@ -357,7 +756,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Quotation created */
+            /** @description Quotation created as draft */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -368,6 +767,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
         };
     };
@@ -376,7 +776,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                id: string;
+                id: components["parameters"]["QuoteId"];
             };
             cookie?: never;
         };
@@ -392,7 +792,356 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["QuoteNotFound"];
+        };
+    };
+    updateQuote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["QuoteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateQuoteRequest"];
+            };
+        };
+        responses: {
+            /** @description Quotation updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuoteDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["QuoteNotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    submitQuote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["QuoteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CommentRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["QuoteDetailResponse"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["QuoteNotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    approveQuote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["QuoteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CommentRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["QuoteDetailResponse"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["QuoteNotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    returnQuote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["QuoteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommentRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["QuoteDetailResponse"];
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["QuoteNotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    sendQuote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["QuoteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["QuoteDetailResponse"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["QuoteNotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    acceptQuote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["QuoteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptQuoteRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["QuoteDetailResponse"];
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["QuoteNotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    rejectQuote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["QuoteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CommentRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["QuoteDetailResponse"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["QuoteNotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getDashboardSummary: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Summary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardSummary"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listUsers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Users ordered by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description User created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description User updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listTeams: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Teams ordered by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamRequest"];
+            };
+        };
+        responses: {
+            /** @description Team created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamRequest"];
+            };
+        };
+        responses: {
+            /** @description Team updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     getPublicQuote: {
@@ -400,7 +1149,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                accessToken: string;
+                accessToken: components["parameters"]["AccessToken"];
             };
             cookie?: never;
         };
@@ -423,7 +1172,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                accessToken: string;
+                accessToken: components["parameters"]["AccessToken"];
             };
             cookie?: never;
         };
@@ -433,16 +1182,28 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Accepted successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["QuoteDetail"];
-                };
-            };
+            200: components["responses"]["QuoteDetailResponse"];
             400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    rejectPublicQuote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accessToken: components["parameters"]["AccessToken"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CommentRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["QuoteDetailResponse"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
         };

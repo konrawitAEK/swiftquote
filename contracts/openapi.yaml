@@ -1,14 +1,38 @@
 openapi: 3.0.3
 info:
   title: SwiftQuote Interchangeable API
-  version: 1.0.0
-  description: Canonical API specification for the SwiftQuote multi-tenant engine.
+  version: 2.0.0
+  description: >-
+    Canonical API specification for the SwiftQuote multi-tenant engine.
+
+
+    Roles (one per user, read from the database on every request so changes apply immediately):
+
+    - admin: manages users and team structure only; no access to quotes or the dashboard.
+
+    - rm: creates and edits their own quotes, submits them for approval, and sends approved quotes.
+
+    - wo: leads one or more teams; sees and approves or returns quotes created by the RMs in those teams.
+
+    - woc: sees every quote in the tenant and the sales dashboard.
+
+    - customer: belongs to one client; sees that client's sent quotes and accepts or rejects them.
+
+
+    Quote workflow: draft -> pending_approval -> approved -> sent -> viewed -> accepted | rejected.
+    A WO may return a pending quote to draft with a comment. Only drafts can be edited.
+    expired is never stored: a quote is expired once its expiryDate has passed.
+
+
+    Error semantics: 401 no or invalid session; 404 the quote is not visible to the caller (or does not exist);
+    403 the caller can see the resource but their role may not perform the action; 409 the action is not
+    allowed in the quote's current state.
   contact:
     name: SwiftQuote Team
     url: https://github.com/konrawitAEK/swiftquote
 servers:
   - url: http://localhost:8080/api/v1
-    description: Local Gateway (either Go or Spring Boot backend)
+    description: Local gateway (Go, Spring Boot or Node.js backend)
 
 tags:
   - name: Auth
@@ -16,14 +40,18 @@ tags:
   - name: Clients
     description: Tenant-scoped client directory
   - name: Quotes
-    description: Tenant-scoped quotation management
+    description: Role-scoped quotation management and approval workflow
+  - name: Dashboard
+    description: Sales summary for WOC
+  - name: Admin
+    description: Users and team structure (admin only)
   - name: ClientPortal
-    description: Public, token-based quote access for clients
+    description: Public, token-based quote access for customers
 
 paths:
   /auth/login:
     post:
-      summary: User login
+      summary: User login (inactive users cannot log in)
       operationId: login
       tags: [Auth]
       requestBody:
@@ -44,7 +72,7 @@ paths:
 
   /clients:
     get:
-      summary: List clients for current tenant
+      summary: List clients for current tenant (rm, admin)
       operationId: listClients
       tags: [Clients]
       security:
@@ -60,10 +88,16 @@ paths:
                   $ref: '#/components/schemas/Client'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   /quotes:
     get:
-      summary: List quotations for current tenant
+      summary: List quotations visible to the caller
+      description: >-
+        rm: quotes they created. wo: quotes created by RMs in teams they lead. woc: all quotes.
+        customer: their client's quotes in sent, viewed, accepted or rejected. admin: 403.
+        Newest first.
       operationId: listQuotes
       tags: [Quotes]
       security:
@@ -75,7 +109,7 @@ paths:
             $ref: '#/components/schemas/QuoteStatus'
       responses:
         '200':
-          description: Quotations visible to the current tenant
+          description: Visible quotations
           content:
             application/json:
               schema:
@@ -86,8 +120,10 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     post:
-      summary: Create quotation with real-time recalculation
+      summary: Create a draft quotation (rm)
       operationId: createQuote
       tags: [Quotes]
       security:
@@ -100,7 +136,7 @@ paths:
               $ref: '#/components/schemas/CreateQuoteRequest'
       responses:
         '201':
-          description: Quotation created
+          description: Quotation created as draft
           content:
             application/json:
               schema:
@@ -109,23 +145,21 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
 
   /quotes/{id}:
+    parameters:
+      - $ref: '#/components/parameters/QuoteId'
     get:
-      summary: Get one quotation of the current tenant, including its share token
+      summary: Get one visible quotation with its history
+      description: A customer opening a sent quote marks it viewed. Customers only see customer-facing history events.
       operationId: getQuote
       tags: [Quotes]
       security:
         - BearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
       responses:
         '200':
           description: Quotation detail
@@ -135,21 +169,350 @@ paths:
                 $ref: '#/components/schemas/QuoteDetail'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/QuoteNotFound'
+    put:
+      summary: Replace a draft quotation (its creator only)
+      operationId: updateQuote
+      tags: [Quotes]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateQuoteRequest'
+      responses:
+        '200':
+          description: Quotation updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuoteDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/QuoteNotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /quotes/{id}/submit:
+    parameters:
+      - $ref: '#/components/parameters/QuoteId'
+    post:
+      summary: Submit a draft for approval (its creator; requires a team with a WO)
+      operationId: submitQuote
+      tags: [Quotes]
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentRequest'
+      responses:
+        '200': { $ref: '#/components/responses/QuoteDetailResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/QuoteNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /quotes/{id}/approve:
+    parameters:
+      - $ref: '#/components/parameters/QuoteId'
+    post:
+      summary: Approve a pending quote (WO leading the creator's team)
+      operationId: approveQuote
+      tags: [Quotes]
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentRequest'
+      responses:
+        '200': { $ref: '#/components/responses/QuoteDetailResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/QuoteNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /quotes/{id}/return:
+    parameters:
+      - $ref: '#/components/parameters/QuoteId'
+    post:
+      summary: Return a pending quote to draft for changes (WO leading the creator's team; comment required)
+      operationId: returnQuote
+      tags: [Quotes]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentRequest'
+      responses:
+        '200': { $ref: '#/components/responses/QuoteDetailResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/QuoteNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /quotes/{id}/send:
+    parameters:
+      - $ref: '#/components/parameters/QuoteId'
+    post:
+      summary: Send an approved, unexpired quote to the customer (its creator)
+      operationId: sendQuote
+      tags: [Quotes]
+      security:
+        - BearerAuth: []
+      responses:
+        '200': { $ref: '#/components/responses/QuoteDetailResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/QuoteNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /quotes/{id}/accept:
+    parameters:
+      - $ref: '#/components/parameters/QuoteId'
+    post:
+      summary: Accept and sign a sent quote (customer of its client)
+      operationId: acceptQuote
+      tags: [Quotes]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptQuoteRequest'
+      responses:
+        '200': { $ref: '#/components/responses/QuoteDetailResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/QuoteNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /quotes/{id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/QuoteId'
+    post:
+      summary: Decline a sent quote (customer of its client)
+      operationId: rejectQuote
+      tags: [Quotes]
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentRequest'
+      responses:
+        '200': { $ref: '#/components/responses/QuoteDetailResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/QuoteNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /dashboard/summary:
+    get:
+      summary: Sales summary (woc)
+      description: >-
+        Covers quotes whose creation date (UTC) is within [from, to], both optional and inclusive.
+        "Sent" counts quotes in sent, viewed, accepted or rejected. conversionRate = acceptedCount / sentCount
+        rounded half-up to 4 decimals (0 when nothing was sent).
+      operationId: getDashboardSummary
+      tags: [Dashboard]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardSummary'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/users:
+    get:
+      summary: List all users of the tenant (admin)
+      operationId: listUsers
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Users ordered by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminUser'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      summary: Add a user (admin)
+      operationId: createUser
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/users/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      summary: Replace a user's name, role, team, client and active flag; optionally reset the password (admin)
+      description: >-
+        Removing someone is done by setting active to false; their history is kept.
+        Admins cannot deactivate themselves or change their own role.
+      operationId: updateUser
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/teams:
+    get:
+      summary: List teams with their WO and RMs (admin)
+      operationId: listTeams
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Teams ordered by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Team'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      summary: Create a team led by a WO (admin)
+      operationId: createTeam
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamRequest'
+      responses:
+        '201':
+          description: Team created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/teams/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      summary: Rename a team or change its WO (admin)
+      operationId: updateTeam
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamRequest'
+      responses:
+        '200':
+          description: Team updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /public/quotes/{accessToken}:
+    parameters:
+      - $ref: '#/components/parameters/AccessToken'
     get:
-      summary: Fetch quote details for client portal without auth
+      summary: Fetch a sent quote by its share link, without login
+      description: Only quotes in sent, viewed, accepted or rejected are reachable; opening a sent quote marks it viewed.
       operationId: getPublicQuote
       tags: [ClientPortal]
-      parameters:
-        - name: accessToken
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
       responses:
         '200':
           description: Public quote view
@@ -161,17 +524,12 @@ paths:
           $ref: '#/components/responses/NotFound'
 
   /public/quotes/{accessToken}/accept:
+    parameters:
+      - $ref: '#/components/parameters/AccessToken'
     post:
-      summary: Client submits e-signature to accept proposal
+      summary: Accept and sign by share link
       operationId: acceptPublicQuote
       tags: [ClientPortal]
-      parameters:
-        - name: accessToken
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
       requestBody:
         required: true
         content:
@@ -179,18 +537,27 @@ paths:
             schema:
               $ref: '#/components/schemas/AcceptQuoteRequest'
       responses:
-        '200':
-          description: Accepted successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/QuoteDetail'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
+        '200': { $ref: '#/components/responses/QuoteDetailResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /public/quotes/{accessToken}/reject:
+    parameters:
+      - $ref: '#/components/parameters/AccessToken'
+    post:
+      summary: Decline by share link
+      operationId: rejectPublicQuote
+      tags: [ClientPortal]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentRequest'
+      responses:
+        '200': { $ref: '#/components/responses/QuoteDetailResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
 components:
   securitySchemes:
@@ -199,30 +566,55 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: >-
-        HS256 signed with the shared JWT_SECRET so tokens work against either backend.
+        HS256 signed with the shared JWT_SECRET so tokens work against any backend.
         Claims: sub (user id), tid (tenant/organization id), role, iat, exp (24h).
+        The role claim is informational: servers read the current role and active flag from the database.
+
+  parameters:
+    QuoteId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AccessToken:
+      name: accessToken
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
 
   responses:
+    QuoteDetailResponse:
+      description: The quotation after the action
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/QuoteDetail'
     Unauthorized:
-      description: Authentication failed
+      description: Missing, invalid or expired session, or the account is inactive
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: The caller's role may not perform this action
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     NotFound:
-      description: Quote expired or not found (also returned for malformed access tokens)
+      description: Not found (also returned for malformed ids and tokens)
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     QuoteNotFound:
-      description: No quotation with this id in the current tenant (also returned for malformed ids)
+      description: No quotation with this id visible to the caller (also returned for malformed ids)
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     Conflict:
-      description: Duplicate quoteNumber within the tenant, or quote can no longer be accepted
+      description: Duplicate key, or the action is not allowed in the current state
       content:
         application/json:
           schema:
@@ -237,7 +629,22 @@ components:
   schemas:
     QuoteStatus:
       type: string
-      enum: [draft, sent, viewed, accepted, rejected, expired]
+      enum: [draft, pending_approval, approved, sent, viewed, accepted, rejected, expired]
+
+    Role:
+      type: string
+      enum: [admin, woc, wo, rm, customer]
+
+    QuoteEventAction:
+      type: string
+      enum: [created, updated, submitted, approved, returned, sent, viewed, accepted, rejected]
+
+    UserRef:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
 
     LoginRequest:
       type: object
@@ -260,10 +667,11 @@ components:
           format: uuid
         user:
           type: object
+          required: [id, name, role]
           properties:
             id: { type: string, format: uuid }
             name: { type: string }
-            role: { type: string, enum: [owner, manager, member] }
+            role: { $ref: '#/components/schemas/Role' }
 
     Client:
       type: object
@@ -297,9 +705,14 @@ components:
           items:
             $ref: '#/components/schemas/QuoteItemInput'
 
+    CommentRequest:
+      type: object
+      properties:
+        comment: { type: string, nullable: true }
+
     QuoteSummary:
       type: object
-      required: [id, quoteNumber, clientName, status, grandTotal, expiryDate]
+      required: [id, quoteNumber, clientName, status, grandTotal, expiryDate, createdBy]
       properties:
         id: { type: string, format: uuid }
         quoteNumber: { type: string }
@@ -307,14 +720,46 @@ components:
         status: { $ref: '#/components/schemas/QuoteStatus' }
         grandTotal: { type: number }
         expiryDate: { type: string, format: date }
+        createdBy:
+          allOf: [{ $ref: '#/components/schemas/UserRef' }]
+          nullable: true
+
+    QuoteItemView:
+      type: object
+      required: [title, description, quantity, unitPrice, discountPercent, taxPercent, lineTotal]
+      properties:
+        title: { type: string }
+        description: { type: string, nullable: true }
+        quantity: { type: number }
+        unitPrice: { type: number }
+        discountPercent: { type: number }
+        taxPercent: { type: number }
+        lineTotal: { type: number, description: "after discount, before VAT" }
+
+    QuoteEvent:
+      type: object
+      required: [action, at]
+      properties:
+        action: { $ref: '#/components/schemas/QuoteEventAction' }
+        actor:
+          description: null when the customer acted through the share link
+          allOf: [{ $ref: '#/components/schemas/UserRef' }]
+          nullable: true
+        comment: { type: string, nullable: true }
+        at: { type: string, format: date-time }
 
     QuoteDetail:
       type: object
-      required: [id, quoteNumber, status, expiryDate, subtotal, discountAmount, taxAmount, grandTotal, items]
+      required: [id, quoteNumber, status, clientId, clientName, expiryDate, subtotal, discountAmount, taxAmount, grandTotal, items, history]
       properties:
         id: { type: string, format: uuid }
         quoteNumber: { type: string }
         status: { $ref: '#/components/schemas/QuoteStatus' }
+        clientId: { type: string, format: uuid }
+        clientName: { type: string }
+        createdBy:
+          allOf: [{ $ref: '#/components/schemas/UserRef' }]
+          nullable: true
         expiryDate: { type: string, format: date }
         subtotal: { type: number }
         discountAmount: { type: number }
@@ -326,12 +771,12 @@ components:
         items:
           type: array
           items:
-            type: object
-            properties:
-              title: { type: string }
-              quantity: { type: number }
-              unitPrice: { type: number }
-              lineTotal: { type: number }
+            $ref: '#/components/schemas/QuoteItemView'
+        history:
+          description: Oldest first. Customers only receive sent, viewed, accepted and rejected events.
+          type: array
+          items:
+            $ref: '#/components/schemas/QuoteEvent'
 
     PublicQuoteView:
       type: object
@@ -348,12 +793,7 @@ components:
         items:
           type: array
           items:
-            type: object
-            properties:
-              title: { type: string }
-              quantity: { type: number }
-              unitPrice: { type: number }
-              lineTotal: { type: number }
+            $ref: '#/components/schemas/QuoteItemView'
 
     AcceptQuoteRequest:
       type: object
@@ -362,12 +802,129 @@ components:
         signerName: { type: string }
         signatureDataUrl: { type: string, description: "Base64 canvas image" }
 
+    DashboardSummary:
+      type: object
+      required: [from, to, acceptedAmount, acceptedCount, sentCount, conversionRate, byStatus, byMonth, byRm, byTeam]
+      properties:
+        from: { type: string, format: date, nullable: true }
+        to: { type: string, format: date, nullable: true }
+        acceptedAmount: { type: number }
+        acceptedCount: { type: integer }
+        sentCount: { type: integer }
+        conversionRate: { type: number, description: "0 to 1, 4 decimals" }
+        byStatus:
+          description: Every QuoteStatus in enum order, including zero counts
+          type: array
+          items:
+            type: object
+            required: [status, count, amount]
+            properties:
+              status: { $ref: '#/components/schemas/QuoteStatus' }
+              count: { type: integer }
+              amount: { type: number }
+        byMonth:
+          description: Accepted quotes grouped by the UTC month they were signed, ascending; months without sales are omitted
+          type: array
+          items:
+            type: object
+            required: [month, acceptedCount, acceptedAmount]
+            properties:
+              month: { type: string, example: "2026-10" }
+              acceptedCount: { type: integer }
+              acceptedAmount: { type: number }
+        byRm:
+          description: Every RM with at least one quote in range, by acceptedAmount desc then name
+          type: array
+          items:
+            type: object
+            required: [user, team, quoteCount, sentCount, acceptedCount, acceptedAmount]
+            properties:
+              user: { $ref: '#/components/schemas/UserRef' }
+              team: { type: string, nullable: true }
+              quoteCount: { type: integer }
+              sentCount: { type: integer }
+              acceptedCount: { type: integer }
+              acceptedAmount: { type: number }
+        byTeam:
+          description: Every team, by acceptedAmount desc then name; counts quotes of its current RMs
+          type: array
+          items:
+            type: object
+            required: [id, name, acceptedCount, acceptedAmount]
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
+              acceptedCount: { type: integer }
+              acceptedAmount: { type: number }
+
+    AdminUser:
+      type: object
+      required: [id, email, name, role, active]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        name: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+        active: { type: boolean }
+        team:
+          description: The team an RM belongs to
+          allOf: [{ $ref: '#/components/schemas/UserRef' }]
+          nullable: true
+        client:
+          description: The client a customer belongs to
+          allOf: [{ $ref: '#/components/schemas/UserRef' }]
+          nullable: true
+
+    CreateUserRequest:
+      type: object
+      required: [email, name, password, role]
+      properties:
+        email: { type: string, format: email }
+        name: { type: string }
+        password: { type: string, minLength: 8 }
+        role: { $ref: '#/components/schemas/Role' }
+        teamId: { type: string, format: uuid, nullable: true, description: "rm only" }
+        clientId: { type: string, format: uuid, nullable: true, description: "required for customer, otherwise must be null" }
+
+    UpdateUserRequest:
+      type: object
+      required: [name, role, active]
+      properties:
+        name: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+        active: { type: boolean }
+        teamId: { type: string, format: uuid, nullable: true, description: "rm only" }
+        clientId: { type: string, format: uuid, nullable: true, description: "required for customer, otherwise must be null" }
+        password: { type: string, minLength: 8, nullable: true, description: "set to reset the password" }
+
+    Team:
+      type: object
+      required: [id, name, wo, members]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        wo:
+          allOf: [{ $ref: '#/components/schemas/UserRef' }]
+          nullable: true
+        members:
+          description: Active RMs in the team, by name
+          type: array
+          items:
+            $ref: '#/components/schemas/UserRef'
+
+    TeamRequest:
+      type: object
+      required: [name, woUserId]
+      properties:
+        name: { type: string }
+        woUserId: { type: string, format: uuid, description: "an active user with role wo" }
+
     ErrorResponse:
       type: object
       required: [code, message]
       properties:
         code:
           type: string
-          enum: [VALIDATION_ERROR, UNAUTHORIZED, NOT_FOUND, CONFLICT, INTERNAL_ERROR]
+          enum: [VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, INTERNAL_ERROR]
         message: { type: string }
         details: { type: array, items: { type: string }, nullable: true }

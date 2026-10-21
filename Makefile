@@ -1,4 +1,4 @@
-.PHONY: help gen-types test-go test-spring test-node run-go run-spring run-node run-node-react smoke parity reset-db dev-db run-go-react run-spring-react run-go-next run-spring-angular stop
+.PHONY: help gen-types test-db test-go test-spring test-node run-go run-spring run-node run-node-react smoke parity reset-db dev-db run-go-react run-spring-react run-go-next run-spring-angular stop
 
 help:
 	@echo "SwiftQuote Polyglot Commands:"
@@ -29,19 +29,16 @@ TEST_DB := swiftquote_test
 TEST_DATABASE_URL ?= postgres://postgres:password@localhost:5432/$(TEST_DB)?sslmode=disable
 
 # Postgres-backed tests run against a throwaway $(TEST_DB) database, recreated from
-# db/migrations each run, so the dev database is never touched. Skipped if Postgres is down.
-test-go:
-	cd backend/go-service && go vet ./...
-	@if docker compose exec -T postgres pg_isready -q 2>/dev/null; then \
-		docker compose exec -T postgres psql -q -U postgres -c 'DROP DATABASE IF EXISTS $(TEST_DB)' -c 'CREATE DATABASE $(TEST_DB)' && \
-		for f in $$(ls db/migrations/V*.sql | sort -V); do \
-			docker compose exec -T postgres psql -q -v ON_ERROR_STOP=1 -U postgres -d $(TEST_DB) < $$f || exit 1; \
-		done && \
-		cd backend/go-service && TEST_DATABASE_URL='$(TEST_DATABASE_URL)' go test -race -count=1 ./...; \
-	else \
-		echo "Postgres not running: skipping DB tests (start with: docker compose up -d postgres)"; \
-		cd backend/go-service && go test -race ./...; \
-	fi
+# db/migrations each run, so the dev database is never touched. Pure unit tests run without it.
+test-db:
+	@docker compose exec -T postgres pg_isready -q 2>/dev/null || { echo "Start Postgres first: docker compose up -d postgres"; exit 1; }
+	@docker compose exec -T postgres psql -q -U postgres -c 'DROP DATABASE IF EXISTS $(TEST_DB)' -c 'CREATE DATABASE $(TEST_DB)' 2>&1 | grep -v NOTICE || true
+	@for f in $$(ls db/migrations/V*.sql | sort -V); do \
+		docker compose exec -T postgres psql -q -v ON_ERROR_STOP=1 -U postgres -d $(TEST_DB) < $$f || exit 1; \
+	done
+
+test-go: test-db
+	cd backend/go-service && go vet ./... && TEST_DATABASE_URL='$(TEST_DATABASE_URL)' go test -race -count=1 ./...
 
 run-go:
 	docker compose --profile go up --build

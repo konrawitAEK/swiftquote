@@ -1,7 +1,8 @@
-// Package auth handles login and JWT issuance/verification.
+// Package auth handles login, JWT issuance/verification and loading the calling actor.
 //
 // Token claims are part of the cross-backend contract (see BearerAuth in contracts/openapi.yaml):
-// HS256, sub = user id, tid = tenant (organization) id, role, exp.
+// HS256, sub = user id, tid = tenant (organization) id, role, exp. The role claim is informational;
+// the actor's current role and active flag are read from the database on every request.
 package auth
 
 import (
@@ -21,15 +22,10 @@ import (
 const tokenTTL = 24 * time.Hour
 
 type Repository interface {
-	// FindLogin returns the user by email (case-insensitive) with their membership, or domain.ErrNotFound.
+	// FindLogin returns an active user by email (case-insensitive) with their membership, or domain.ErrNotFound.
 	FindLogin(ctx context.Context, email string) (domain.User, domain.Membership, error)
-}
-
-// Principal is the authenticated caller extracted from a token.
-type Principal struct {
-	UserID   uuid.UUID
-	TenantID uuid.UUID
-	Role     domain.Role
+	// LoadActor returns the active member userID of tenantID, or domain.ErrNotFound.
+	LoadActor(ctx context.Context, tenantID, userID uuid.UUID) (domain.Actor, error)
 }
 
 type LoginResult struct {
@@ -54,17 +50,18 @@ type claims struct {
 	jwt.RegisteredClaims
 }
 
-// Login verifies credentials. Unknown email and wrong password both return domain.ErrUnauthorized.
+// Login verifies credentials. Unknown email, inactive account and wrong password all fail the same way.
 func (s *Service) Login(ctx context.Context, email, password string) (LoginResult, error) {
+	invalid := domain.Unauthorized("invalid email or password")
 	user, m, err := s.repo.FindLogin(ctx, strings.TrimSpace(email))
 	if errors.Is(err, domain.ErrNotFound) {
-		return LoginResult{}, domain.ErrUnauthorized
+		return LoginResult{}, invalid
 	}
 	if err != nil {
 		return LoginResult{}, err
 	}
 	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) != nil {
-		return LoginResult{}, domain.ErrUnauthorized
+		return LoginResult{}, invalid
 	}
 
 	now := s.now()
@@ -84,8 +81,8 @@ func (s *Service) Login(ctx context.Context, email, password string) (LoginResul
 	return LoginResult{AccessToken: signed, User: user, Membership: m}, nil
 }
 
-// Verify parses a bearer token. Any failure returns domain.ErrUnauthorized.
-func (s *Service) Verify(token string) (Principal, error) {
+// Authenticate verifies a bearer token and loads the actor it belongs to.
+func (s *Service) Authenticate(ctx context.Context, token string) (domain.Actor, error) {
 	var c claims
 	_, err := jwt.ParseWithClaims(token, &c, func(*jwt.Token) (any, error) { return s.secret, nil },
 		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
@@ -93,12 +90,22 @@ func (s *Service) Verify(token string) (Principal, error) {
 		jwt.WithTimeFunc(s.now),
 	)
 	if err != nil {
-		return Principal{}, domain.ErrUnauthorized
+		return domain.Actor{}, domain.Unauthorized("invalid or expired token")
 	}
 	userID, err1 := uuid.Parse(c.Subject)
 	tenantID, err2 := uuid.Parse(c.TenantID)
 	if err1 != nil || err2 != nil {
-		return Principal{}, domain.ErrUnauthorized
+		return domain.Actor{}, domain.Unauthorized("invalid or expired token")
 	}
-	return Principal{UserID: userID, TenantID: tenantID, Role: domain.Role(c.Role)}, nil
+	actor, err := s.repo.LoadActor(ctx, tenantID, userID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return domain.Actor{}, domain.Unauthorized("account is inactive")
+	}
+	return actor, err
+}
+
+// HashPassword is shared with user administration so all hashes use the same cost.
+func HashPassword(password string) (string, error) {
+	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(h), err
 }

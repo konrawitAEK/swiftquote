@@ -5,17 +5,19 @@ import "github.com/google/uuid"
 type Role string
 
 const (
-	RoleOwner   Role = "owner"
-	RoleManager Role = "manager"
-	RoleMember  Role = "member"
+	RoleAdmin    Role = "admin"
+	RoleWOC      Role = "woc"
+	RoleWO       Role = "wo"
+	RoleRM       Role = "rm"
+	RoleCustomer Role = "customer"
 )
 
-type Organization struct {
-	ID       uuid.UUID
-	Name     string
-	Slug     string
-	Currency string
-	LogoURL  *string
+func (r Role) Valid() bool {
+	switch r {
+	case RoleAdmin, RoleWOC, RoleWO, RoleRM, RoleCustomer:
+		return true
+	}
+	return false
 }
 
 type User struct {
@@ -25,11 +27,31 @@ type User struct {
 	FullName     string
 }
 
-// Membership links a user to the tenant they act in.
+// Membership links a user to the tenant they act in, with their role and placement.
 type Membership struct {
 	OrganizationID uuid.UUID
 	UserID         uuid.UUID
 	Role           Role
+	TeamID         *uuid.UUID // rm only
+	ClientID       *uuid.UUID // customer only
+	Active         bool
+}
+
+// Actor is the authenticated caller, loaded from the database on every request so role changes
+// and deactivation apply immediately.
+type Actor struct {
+	UserID   uuid.UUID
+	Name     string
+	TenantID uuid.UUID
+	Role     Role
+	TeamID   *uuid.UUID
+	ClientID *uuid.UUID
+}
+
+// Ref is a lightweight {id, name} reference used in responses.
+type Ref struct {
+	ID   uuid.UUID
+	Name string
 }
 
 type Client struct {
