@@ -1,9 +1,9 @@
 'use client'
 
 import { Box, Stack, Typography } from '@mui/material'
-import type { Schemas } from '@/lib/api/types'
+import type { QuoteEvent } from '@/models'
 
-type Event = Schemas['QuoteEvent']
+type Event = QuoteEvent
 
 const LABELS: Record<Event['action'], string> = {
   created: 'Created',

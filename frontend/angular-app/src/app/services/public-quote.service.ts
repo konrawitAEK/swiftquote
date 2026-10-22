@@ -1,7 +1,8 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import type { Observable } from 'rxjs';
-import { API_URL, type QuoteDetail, type Schemas } from '../core/api';
+import { API_URL } from '../core/api';
+import type { AcceptQuoteRequest, CommentRequest, PublicQuoteView, QuoteDetail } from '../models';
 
 const publicUrl = (accessToken: string) => `${API_URL}/public/quotes/${encodeURIComponent(accessToken)}`;
 
@@ -10,16 +11,16 @@ const publicUrl = (accessToken: string) => `${API_URL}/public/quotes/${encodeURI
 export class PublicQuoteService {
   private readonly http = inject(HttpClient);
 
-  get(accessToken: string): Observable<Schemas['PublicQuoteView']> {
-    return this.http.get<Schemas['PublicQuoteView']>(publicUrl(accessToken));
+  get(accessToken: string): Observable<PublicQuoteView> {
+    return this.http.get<PublicQuoteView>(publicUrl(accessToken));
   }
 
-  accept(accessToken: string, body: Schemas['AcceptQuoteRequest']): Observable<QuoteDetail> {
+  accept(accessToken: string, body: AcceptQuoteRequest): Observable<QuoteDetail> {
     return this.http.post<QuoteDetail>(`${publicUrl(accessToken)}/accept`, body);
   }
 
   reject(accessToken: string, comment: string | null): Observable<QuoteDetail> {
-    const body: Schemas['CommentRequest'] = { comment };
+    const body: CommentRequest = { comment };
     return this.http.post<QuoteDetail>(`${publicUrl(accessToken)}/reject`, body);
   }
 }

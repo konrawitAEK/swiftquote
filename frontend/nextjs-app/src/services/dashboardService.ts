@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { serverApi } from '@/lib/api/server'
-import type { DashboardSummary } from '@/lib/api/types'
+import type { DashboardSummary } from '@/models'
 
 /** Server-side: called from the dashboard Server Component with the session cookie. */
 export const dashboardService = {

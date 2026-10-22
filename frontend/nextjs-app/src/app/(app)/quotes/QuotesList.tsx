@@ -22,10 +22,11 @@ import NextLink from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { StatusChip } from '@/components/StatusChip'
-import { errorText, isNetworkError, type QuoteStatus, type QuoteSummary, type Role } from '@/lib/api/types'
+import { errorText, isNetworkError } from '@/lib/api/types'
 import { STATUS_LABELS } from '@/lib/auth/roles'
 import { formatMoney } from '@/lib/pricing/pricing'
 import { quotesService } from '@/services/quotesService'
+import type { QuoteStatus, QuoteSummary, Role } from '@/models'
 
 const STATUSES: QuoteStatus[] = ['draft', 'pending_approval', 'approved', 'sent', 'viewed', 'accepted', 'rejected']
 const CUSTOMER_STATUSES: QuoteStatus[] = ['sent', 'viewed', 'accepted', 'rejected']

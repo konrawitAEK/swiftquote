@@ -1,5 +1,5 @@
 import { http } from '@/lib/api/http'
-import type { AuthResponse, LoginRequest } from '@/lib/api/types'
+import type { AuthResponse, LoginRequest } from '@/models'
 
 export const authService = {
   async login(credentials: LoginRequest): Promise<AuthResponse> {

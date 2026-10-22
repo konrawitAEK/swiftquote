@@ -2,9 +2,9 @@ import 'server-only'
 
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import type { Role } from '@/lib/api/types'
 import { homePath } from './roles'
 import { parseUser, TOKEN_COOKIE, USER_COOKIE, type AuthUser } from './session'
+import type { Role } from '@/models'
 
 /** The session from the request cookies, or null. */
 export async function getSession(): Promise<AuthUser | null> {

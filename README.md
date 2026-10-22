@@ -85,9 +85,14 @@ dev server on the host:
 | Next.js | `frontend/nextjs-app` | `npm run dev` → :3001 | Dashboard is a Server Component (fetches with the session cookie) |
 | Angular | `frontend/angular-app` | `npm start` → :3002 | Standalone + Signals; the Angular CLI needs Node ≥ 22.22.3 (or 24.15+) |
 
-Run `npm ci` in the folder first. API types come from the contract: after changing
-`contracts/openapi.yaml`, run `make gen-types` (writes `schema.d.ts` into all three apps; CI fails if
-they are stale).
+Run `npm ci` in the folder first.
+
+Data shapes live in a `models/` folder (`src/models`, Angular `src/app/models`): one file per area
+(`common`, `auth`, `catalog`, `quote`, `dashboard`, `admin`) with interfaces such as
+`interface QuoteDetail extends Generated<'QuoteDetail'> {}`. Each one extends the type generated from
+the contract, so it can't drift from the API. After changing `contracts/openapi.yaml`, run
+`make gen-types` (rewrites `schema.d.ts` in all three apps; CI fails if they are stale), and add any new
+schema to the matching model file.
 
 ## Cross-backend checks
 

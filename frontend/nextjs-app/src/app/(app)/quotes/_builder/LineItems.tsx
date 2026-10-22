@@ -4,8 +4,8 @@ import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined'
 import { Button, Card, CardContent, Divider, IconButton, InputAdornment, MenuItem, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import type { Dispatch, SetStateAction } from 'react'
-import type { Schemas } from '@/lib/api/types'
 import { formatMoney, type PricingResult } from '@/lib/pricing/pricing'
+import type { ProductCategory } from '@/models'
 
 export interface Line {
   key: number
@@ -35,7 +35,7 @@ export const newLine = (init: Partial<Omit<Line, 'key'>> = {}): Line => ({
 export function LineItems(props: {
   lines: Line[]
   setLines: Dispatch<SetStateAction<Line[]>>
-  categories: Schemas['ProductCategory'][]
+  categories: ProductCategory[]
   totals: PricingResult
 }) {
   const { lines, setLines, categories, totals } = props

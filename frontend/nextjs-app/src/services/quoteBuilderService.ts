@@ -1,5 +1,5 @@
 import { http } from '@/lib/api/http'
-import type { Client, CreateQuoteRequest, ProductCategory, QuoteDetail } from '@/lib/api/types'
+import type { Client, CreateQuoteRequest, ProductCategory, QuoteDetail } from '@/models'
 
 const quotePath = (id: string) => `/quotes/${encodeURIComponent(id)}`
 

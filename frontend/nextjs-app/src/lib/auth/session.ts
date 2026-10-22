@@ -1,5 +1,5 @@
-import type { Role, Schemas } from '@/lib/api/types'
 import { ROLE_LABELS } from './roles'
+import type { AuthResponse, Role } from '@/models'
 
 /** JWT for API calls; a cookie (not only browser storage) so Server Components can use it too. */
 export const TOKEN_COOKIE = 'swiftquote_token'
@@ -7,7 +7,7 @@ export const TOKEN_COOKIE = 'swiftquote_token'
 export const USER_COOKIE = 'swiftquote_user'
 export const COOKIE_MAX_AGE = 7 * 24 * 60 * 60
 
-export type AuthUser = Schemas['AuthResponse']['user']
+export type AuthUser = AuthResponse['user']
 
 /** The stored user, or null if missing, malformed or from an older version (unknown role). */
 export function parseUser(raw: string | undefined | null): AuthUser | null {

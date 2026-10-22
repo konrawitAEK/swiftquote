@@ -18,7 +18,6 @@ import {
 } from '@mui/material'
 import { useEffect, useState } from 'react'
 import { errorText } from '../../api/http'
-import type { Schemas } from '../../api/types'
 import { useAuth } from '../../auth/auth'
 import { ROLE_LABELS } from '../../auth/roles'
 import { adminService } from '../../services/adminService'
@@ -26,11 +25,10 @@ import { CategoryDialog } from './CategoryDialog'
 import { DeleteDialog, type DeleteTarget } from './DeleteDialog'
 import { TeamDialog } from './TeamDialog'
 import { UserDialog } from './UserDialog'
+import type { AdminUser, Client, ProductCategory, Team } from '../../models'
 
-type User = Schemas['AdminUser']
-type Team = Schemas['Team']
-type Client = Schemas['Client']
-type Category = Schemas['ProductCategory']
+type User = AdminUser
+type Category = ProductCategory
 
 const ADD_LABELS = ['Add user', 'Add team', 'Add category']
 

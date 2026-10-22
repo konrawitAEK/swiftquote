@@ -15,7 +15,8 @@ import {
   Typography,
 } from '@mui/material'
 import { useState } from 'react'
-import { errorText, type AdminUser as User, type Client, type Role, type Team } from '@/lib/api/types'
+import { errorText } from '@/lib/api/types'
+import type { AdminUser as User, Client, Role, Team } from '@/models'
 import { useAuth } from '@/components/AuthProvider'
 import { ROLE_LABELS } from '@/lib/auth/roles'
 import { adminService } from '@/services/adminService'

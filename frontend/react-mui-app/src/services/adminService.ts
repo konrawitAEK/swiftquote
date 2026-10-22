@@ -1,9 +1,8 @@
 import { http } from '../api/http'
-import type { Schemas } from '../api/types'
+import type { AdminUser, Client, CreateCategoryRequest, CreateUserRequest, ProductCategory, Team, TeamRequest, UpdateCategoryRequest, UpdateUserRequest } from '../models'
 
-type User = Schemas['AdminUser']
-type Team = Schemas['Team']
-type Category = Schemas['ProductCategory']
+type User = AdminUser
+type Category = ProductCategory
 
 const byId = (base: string, id: string) => `${base}/${encodeURIComponent(id)}`
 
@@ -18,8 +17,8 @@ export const adminService = {
     return data
   },
 
-  async listClients(): Promise<Schemas['Client'][]> {
-    const { data } = await http.get<Schemas['Client'][]>('/clients')
+  async listClients(): Promise<Client[]> {
+    const { data } = await http.get<Client[]>('/clients')
     return data
   },
 
@@ -28,32 +27,32 @@ export const adminService = {
     return data
   },
 
-  async createUser(body: Schemas['CreateUserRequest']): Promise<User> {
+  async createUser(body: CreateUserRequest): Promise<User> {
     const { data } = await http.post<User>('/admin/users', body)
     return data
   },
 
-  async updateUser(id: string, body: Schemas['UpdateUserRequest']): Promise<User> {
+  async updateUser(id: string, body: UpdateUserRequest): Promise<User> {
     const { data } = await http.put<User>(byId('/admin/users', id), body)
     return data
   },
 
-  async createTeam(body: Schemas['TeamRequest']): Promise<Team> {
+  async createTeam(body: TeamRequest): Promise<Team> {
     const { data } = await http.post<Team>('/admin/teams', body)
     return data
   },
 
-  async updateTeam(id: string, body: Schemas['TeamRequest']): Promise<Team> {
+  async updateTeam(id: string, body: TeamRequest): Promise<Team> {
     const { data } = await http.put<Team>(byId('/admin/teams', id), body)
     return data
   },
 
-  async createCategory(body: Schemas['CreateCategoryRequest']): Promise<Category> {
+  async createCategory(body: CreateCategoryRequest): Promise<Category> {
     const { data } = await http.post<Category>('/admin/categories', body)
     return data
   },
 
-  async updateCategory(id: string, body: Schemas['UpdateCategoryRequest']): Promise<Category> {
+  async updateCategory(id: string, body: UpdateCategoryRequest): Promise<Category> {
     const { data } = await http.put<Category>(byId('/admin/categories', id), body)
     return data
   },

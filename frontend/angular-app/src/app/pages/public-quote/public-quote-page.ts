@@ -8,15 +8,16 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { finalize } from 'rxjs';
 import { Alert } from '../../components/alert';
 import { SignaturePad } from '../../components/signature-pad';
-import { errorText, type Schemas } from '../../core/api';
+import { errorText } from '../../core/api';
 import { formatDateTime } from '../../core/format';
 import { formatMoney } from '../../core/pricing';
 import { PublicQuoteService } from '../../services/public-quote.service';
+import type { PublicQuoteView } from '../../models';
 
 type LoadState =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
-  | { kind: 'ready'; quote: Schemas['PublicQuoteView'] };
+  | { kind: 'ready'; quote: PublicQuoteView };
 
 const OFFLINE = 'Cannot reach the server. Please try again.';
 

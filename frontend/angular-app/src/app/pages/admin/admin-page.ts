@@ -8,7 +8,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTabsModule } from '@angular/material/tabs';
 import { forkJoin } from 'rxjs';
 import { Alert } from '../../components/alert';
-import { errorText, type Schemas } from '../../core/api';
+import { errorText } from '../../core/api';
 import { AuthService } from '../../services/auth.service';
 import { ROLE_LABELS } from '../../core/roles';
 import { AdminService } from '../../services/admin.service';
@@ -16,11 +16,10 @@ import { CategoryDialog } from './category-dialog';
 import { DeleteDialog, type DeleteTarget } from './delete-dialog';
 import { TeamDialog, type TeamDialogData } from './team-dialog';
 import { UserDialog, type UserDialogData } from './user-dialog';
+import type { AdminUser, Client, ProductCategory, Team } from '../../models';
 
-type User = Schemas['AdminUser'];
-type Team = Schemas['Team'];
-type Client = Schemas['Client'];
-type Category = Schemas['ProductCategory'];
+type User = AdminUser;
+type Category = ProductCategory;
 
 interface Lists {
   users: User[];

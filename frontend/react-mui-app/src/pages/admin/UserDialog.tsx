@@ -14,14 +14,12 @@ import {
 } from '@mui/material'
 import { useState } from 'react'
 import { errorText } from '../../api/http'
-import type { Role, Schemas } from '../../api/types'
 import { useAuth } from '../../auth/auth'
 import { ROLE_LABELS } from '../../auth/roles'
 import { adminService } from '../../services/adminService'
+import type { AdminUser, Client, Role, Team } from '../../models'
 
-type User = Schemas['AdminUser']
-type Team = Schemas['Team']
-type Client = Schemas['Client']
+type User = AdminUser
 
 const ROLES = Object.keys(ROLE_LABELS) as Role[]
 

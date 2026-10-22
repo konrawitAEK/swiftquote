@@ -1,11 +1,11 @@
 import { http, setToken } from '../api/http'
-import type { Schemas } from '../api/types'
+import type { AuthResponse, LoginRequest } from '../models'
 
 export const authService = {
   /** Signs in and stores the access token for later requests. */
-  async login(email: string, password: string): Promise<Schemas['AuthResponse']> {
-    const body: Schemas['LoginRequest'] = { email, password }
-    const { data } = await http.post<Schemas['AuthResponse']>('/auth/login', body)
+  async login(email: string, password: string): Promise<AuthResponse> {
+    const body: LoginRequest = { email, password }
+    const { data } = await http.post<AuthResponse>('/auth/login', body)
     setToken(data.accessToken)
     return data
   },

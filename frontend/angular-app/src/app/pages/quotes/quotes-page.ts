@@ -9,11 +9,12 @@ import { MatSelectModule } from '@angular/material/select';
 import { Router, RouterLink } from '@angular/router';
 import { Alert } from '../../components/alert';
 import { StatusChip } from '../../components/status-chip';
-import { errorText, type QuoteStatus, type Role } from '../../core/api';
+import { errorText } from '../../core/api';
 import { AuthService } from '../../services/auth.service';
 import { formatMoney } from '../../core/pricing';
 import { STATUS_LABELS } from '../../core/roles';
 import { QuotesService } from '../../services/quotes.service';
+import type { QuoteStatus, Role } from '../../models';
 
 const STATUSES: QuoteStatus[] = ['draft', 'pending_approval', 'approved', 'sent', 'viewed', 'accepted', 'rejected'];
 const CUSTOMER_STATUSES: QuoteStatus[] = ['sent', 'viewed', 'accepted', 'rejected'];

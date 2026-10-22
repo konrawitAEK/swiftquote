@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import type { ErrorResponse } from './types';
+import type { ErrorResponse } from '../../models';
 
 function isErrorResponse(value: unknown): value is ErrorResponse {
   return typeof value === 'object' && value !== null && typeof (value as ErrorResponse).message === 'string';

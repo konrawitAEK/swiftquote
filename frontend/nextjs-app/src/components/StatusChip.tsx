@@ -1,8 +1,8 @@
 'use client'
 
 import { Chip, type ChipProps } from '@mui/material'
-import type { QuoteStatus } from '@/lib/api/types'
 import { STATUS_LABELS } from '@/lib/auth/roles'
+import type { QuoteStatus } from '@/models'
 
 const colors: Record<QuoteStatus, ChipProps['color']> = {
   draft: 'default',

@@ -1,7 +1,8 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import type { Observable } from 'rxjs';
-import { API_URL, type QuoteDetail, type Schemas } from '../core/api';
+import { API_URL } from '../core/api';
+import type { AcceptQuoteRequest, CommentRequest, QuoteDetail } from '../models';
 
 /** Workflow calls that take an optional comment. */
 export type CommentAction = 'submit' | 'approve' | 'return' | 'reject';
@@ -19,7 +20,7 @@ export class QuoteDetailService {
 
   /** submit / approve / return / reject, each with an optional comment. */
   commentAction(id: string, action: CommentAction, comment: string | null): Observable<QuoteDetail> {
-    const body: Schemas['CommentRequest'] = { comment };
+    const body: CommentRequest = { comment };
     return this.http.post<QuoteDetail>(`${quoteUrl(id)}/${action}`, body);
   }
 
@@ -27,7 +28,7 @@ export class QuoteDetailService {
     return this.http.post<QuoteDetail>(`${quoteUrl(id)}/send`, null);
   }
 
-  accept(id: string, body: Schemas['AcceptQuoteRequest']): Observable<QuoteDetail> {
+  accept(id: string, body: AcceptQuoteRequest): Observable<QuoteDetail> {
     return this.http.post<QuoteDetail>(`${quoteUrl(id)}/accept`, body);
   }
 }

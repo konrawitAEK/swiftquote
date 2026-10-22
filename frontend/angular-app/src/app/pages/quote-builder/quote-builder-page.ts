@@ -11,10 +11,11 @@ import { Router, RouterLink } from '@angular/router';
 import { finalize, from, switchMap, type Subscription } from 'rxjs';
 import { Alert } from '../../components/alert';
 import { TotalRow } from '../../components/total-row';
-import { errorText, type QuoteDetail, type Schemas } from '../../core/api';
+import { errorText } from '../../core/api';
 import { isoDate } from '../../core/format';
 import { calculate, formatMoney, toDecimal } from '../../core/pricing';
 import { QuoteBuilderService } from '../../services/quote-builder.service';
+import type { Client, CreateQuoteRequest, ProductCategory, QuoteDetail } from '../../models';
 
 interface Line {
   key: number;
@@ -86,7 +87,7 @@ export class QuoteBuilderPage {
   protected readonly categories = computed(() => (this.categoriesRes.hasValue() ? this.categoriesRes.value() : []));
   protected readonly clients = computed(() => (this.clientsRes.hasValue() ? this.clientsRes.value() : []));
   /** A new quote with only one client to choose from starts with that client. */
-  protected readonly clientId = linkedSignal<Schemas['Client'][], string>({
+  protected readonly clientId = linkedSignal<Client[], string>({
     source: this.clients,
     computation: (clients, previous) =>
       !this.editing() && clients.length === 1 ? clients[0].id : (previous?.value ?? ''),
@@ -166,7 +167,7 @@ export class QuoteBuilderPage {
   }
 
   /** Active categories, plus the line's current one if it has been retired since. */
-  protected categoryOptions(current: string): Schemas['ProductCategory'][] {
+  protected categoryOptions(current: string): ProductCategory[] {
     return this.categories().filter((c) => c.active || c.id === current);
   }
 
@@ -186,7 +187,7 @@ export class QuoteBuilderPage {
     e.preventDefault();
     this.busy.set(true);
     this.formError.set(null);
-    const body: Schemas['CreateQuoteRequest'] = {
+    const body: CreateQuoteRequest = {
       clientId: this.clientId(),
       quoteNumber: this.quoteNumber(),
       expiryDate: this.expiryDate(),

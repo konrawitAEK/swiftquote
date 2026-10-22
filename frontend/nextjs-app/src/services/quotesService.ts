@@ -1,5 +1,5 @@
 import { http } from '@/lib/api/http'
-import type { QuoteStatus, QuoteSummary } from '@/lib/api/types'
+import type { QuoteStatus, QuoteSummary } from '@/models'
 
 export const quotesService = {
   /** Quotes visible to the signed-in user, optionally filtered by status. */

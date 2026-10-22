@@ -1,5 +1,5 @@
 import { http } from '@/lib/api/http'
-import type { AcceptQuoteRequest, CommentRequest, QuoteDetail } from '@/lib/api/types'
+import type { AcceptQuoteRequest, CommentRequest, QuoteDetail } from '@/models'
 
 type Comment = CommentRequest['comment']
 

@@ -7,10 +7,11 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { finalize } from 'rxjs';
 import { Alert } from '../../components/alert';
-import { errorText, type Schemas } from '../../core/api';
+import { errorText } from '../../core/api';
 import { AdminService } from '../../services/admin.service';
+import type { ProductCategory } from '../../models';
 
-type Category = Schemas['ProductCategory'];
+type Category = ProductCategory;
 
 /** Add a product category, or rename / retire one. Retired categories stay on existing quotes. Closes with true when saved. */
 @Component({
