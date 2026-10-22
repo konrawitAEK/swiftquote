@@ -5,9 +5,10 @@ import NextLink from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from 'react'
 import { TotalRow } from '@/components/TotalRow'
-import { api, errorText, type Schemas } from '@/lib/api/client'
+import { errorText, type Client, type CreateQuoteRequest, type ProductCategory } from '@/lib/api/types'
 import { calculate, formatMoney, toDecimal } from '@/lib/pricing/pricing'
 import { LineItems, newLine, type Line } from './LineItems'
+import { quoteBuilderService } from './quoteBuilderService'
 
 /** YYYY-MM-DD in the user's local time zone. */
 function isoDate(d: Date): string {
@@ -33,8 +34,8 @@ export function QuoteBuilder({ id }: { id?: string }) {
 function BuilderForm({ id }: { id?: string }) {
   const editing = id !== undefined
   const router = useRouter()
-  const [clients, setClients] = useState<Schemas['Client'][]>([])
-  const [categories, setCategories] = useState<Schemas['ProductCategory'][]>([])
+  const [clients, setClients] = useState<Client[]>([])
+  const [categories, setCategories] = useState<ProductCategory[]>([])
   const [clientId, setClientId] = useState('')
   const [quoteNumber, setQuoteNumber] = useState(defaultQuoteNumber)
   const [today] = useState(() => isoDate(new Date()))
@@ -46,40 +47,47 @@ function BuilderForm({ id }: { id?: string }) {
   const [locked, setLocked] = useState<string | null>(null)
 
   useEffect(() => {
-    api.GET('/categories').then(({ data, error }) => {
-      if (!data) return setError(errorText(error, 'Could not load product categories'))
-      setCategories(data)
-    })
-    api.GET('/clients').then(({ data, error }) => {
-      if (!data) return setError(errorText(error, 'Could not load clients'))
-      setClients(data)
-      if (!editing && data.length === 1) setClientId(data[0].id)
-    })
+    quoteBuilderService
+      .listCategories()
+      .then(setCategories)
+      .catch((e: unknown) => setError(errorText(e, 'Could not load product categories')))
+    quoteBuilderService
+      .listClients()
+      .then((data) => {
+        setClients(data)
+        if (!editing && data.length === 1) setClientId(data[0].id)
+      })
+      .catch((e: unknown) => setError(errorText(e, 'Could not load clients')))
   }, [editing])
 
   useEffect(() => {
     if (!id) return
-    api.GET('/quotes/{id}', { params: { path: { id } } }).then(({ data, error }) => {
-      setLoading(false)
-      if (!data) return setError(errorText(error, 'Could not load quotation'))
-      if (data.status !== 'draft') setLocked(`This quotation is ${data.status.replace('_', ' ')} and can no longer be edited.`)
-      setClientId(data.clientId)
-      setQuoteNumber(data.quoteNumber)
-      setExpiryDate(data.expiryDate)
-      setLines(
-        data.items.map((it) =>
-          newLine({
-            title: it.title,
-            categoryId: it.category?.id ?? '',
-            description: it.description ?? '',
-            quantity: String(it.quantity),
-            unitPrice: String(it.unitPrice),
-            discountPercent: String(it.discountPercent),
-            taxPercent: String(it.taxPercent),
-          }),
-        ),
-      )
-    })
+    quoteBuilderService.get(id).then(
+      (data) => {
+        setLoading(false)
+        if (data.status !== 'draft') setLocked(`This quotation is ${data.status.replace('_', ' ')} and can no longer be edited.`)
+        setClientId(data.clientId)
+        setQuoteNumber(data.quoteNumber)
+        setExpiryDate(data.expiryDate)
+        setLines(
+          data.items.map((it) =>
+            newLine({
+              title: it.title,
+              categoryId: it.category?.id ?? '',
+              description: it.description ?? '',
+              quantity: String(it.quantity),
+              unitPrice: String(it.unitPrice),
+              discountPercent: String(it.discountPercent),
+              taxPercent: String(it.taxPercent),
+            }),
+          ),
+        )
+      },
+      (e: unknown) => {
+        setLoading(false)
+        setError(errorText(e, 'Could not load quotation'))
+      },
+    )
   }, [id])
 
   // Live preview with the same rounding rules as the server (contracts/fixtures/pricing-cases.json).
@@ -100,7 +108,7 @@ function BuilderForm({ id }: { id?: string }) {
     e.preventDefault()
     setBusy(true)
     setError(null)
-    const body = {
+    const body: CreateQuoteRequest = {
       clientId,
       quoteNumber,
       expiryDate,
@@ -115,13 +123,10 @@ function BuilderForm({ id }: { id?: string }) {
       })),
     }
     try {
-      const { data, error } = id
-        ? await api.PUT('/quotes/{id}', { params: { path: { id } }, body })
-        : await api.POST('/quotes', { body })
-      if (data) router.push(`/quotes/${data.id}`)
-      else setError(errorText(error, 'Could not save quotation'))
-    } catch {
-      setError('Cannot reach the API')
+      const data = id ? await quoteBuilderService.update(id, body) : await quoteBuilderService.create(body)
+      router.push(`/quotes/${data.id}`)
+    } catch (e) {
+      setError(errorText(e, 'Could not save quotation'))
     } finally {
       setBusy(false)
     }

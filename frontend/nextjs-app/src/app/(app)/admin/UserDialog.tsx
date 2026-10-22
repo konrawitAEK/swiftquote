@@ -15,13 +15,10 @@ import {
   Typography,
 } from '@mui/material'
 import { useState } from 'react'
-import { api, errorText, type Role, type Schemas } from '@/lib/api/client'
+import { errorText, type AdminUser as User, type Client, type Role, type Team } from '@/lib/api/types'
 import { useAuth } from '@/components/AuthProvider'
 import { ROLE_LABELS } from '@/lib/auth/roles'
-
-type User = Schemas['AdminUser']
-type Team = Schemas['Team']
-type Client = Schemas['Client']
+import { adminService } from './adminService'
 
 const ROLES = Object.keys(ROLE_LABELS) as Role[]
 
@@ -47,16 +44,12 @@ export function UserDialog(props: { user: User | null; teams: Team[]; clients: C
       clientId: role === 'customer' && clientId ? clientId : null,
     }
     try {
-      const res = user
-        ? await api.PUT('/admin/users/{id}', {
-            params: { path: { id: user.id } },
-            body: { name, role, active, ...placement, password: password || null },
-          })
-        : await api.POST('/admin/users', { body: { email, name, password, role, ...placement } })
-      if (res.data) onSaved()
-      else setError(errorText(res.error, 'Could not save user'))
-    } catch {
-      setError('Cannot reach the API')
+      await (user
+        ? adminService.updateUser(user.id, { name, role, active, ...placement, password: password || null })
+        : adminService.createUser({ email, name, password, role, ...placement }))
+      onSaved()
+    } catch (e) {
+      setError(errorText(e, 'Could not save user'))
     } finally {
       setBusy(false)
     }

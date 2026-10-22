@@ -2,7 +2,9 @@
 
 import { useRouter } from 'next/navigation'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { api, AUTH_EXPIRED_EVENT, errorText } from '@/lib/api/client'
+import { AUTH_EXPIRED_EVENT } from '@/lib/api/http'
+import { errorText, isNetworkError } from '@/lib/api/types'
+import { authService } from '@/lib/auth/authService'
 import { encodeUser, TOKEN_COOKIE, USER_COOKIE, writeCookie, type AuthUser } from '@/lib/auth/session'
 
 export interface AuthState {
@@ -39,14 +41,13 @@ export function AuthProvider({ initialUser, children }: { initialUser: AuthUser 
 
   const login = useCallback(async (email: string, password: string) => {
     try {
-      const { data, error } = await api.POST('/auth/login', { body: { email, password } })
-      if (!data) return errorText(error, 'Login failed')
+      const data = await authService.login({ email, password })
       writeCookie(TOKEN_COOKIE, data.accessToken)
       writeCookie(USER_COOKIE, encodeUser(data.user))
       setUser(data.user)
       return data.user
-    } catch {
-      return 'Cannot reach the API. Is the backend running on :8080?'
+    } catch (e) {
+      return isNetworkError(e) ? 'Cannot reach the API. Is the backend running on :8080?' : errorText(e, 'Login failed')
     }
   }, [])
 
