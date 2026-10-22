@@ -13,6 +13,7 @@ interface Props {
 export function SignaturePad({ onChange, disabled }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const drawing = useRef(false)
+  const moved = useRef(false)
   const [empty, setEmpty] = useState(true)
 
   // Match the backing store to the displayed size so strokes are crisp and under the pointer.
@@ -43,6 +44,7 @@ export function SignaturePad({ onChange, disabled }: Props) {
     if (!ctx) return
     e.currentTarget.setPointerCapture(e.pointerId)
     drawing.current = true
+    moved.current = false
     const { x, y } = point(e)
     ctx.beginPath()
     ctx.moveTo(x, y)
@@ -55,11 +57,13 @@ export function SignaturePad({ onChange, disabled }: Props) {
     const { x, y } = point(e)
     ctx.lineTo(x, y)
     ctx.stroke()
+    moved.current = true
   }
 
   const end = (e: PointerEvent<HTMLCanvasElement>) => {
     if (!drawing.current) return
     drawing.current = false
+    if (!moved.current) return // a tap draws nothing, so it is not a signature
     setEmpty(false)
     onChange(e.currentTarget.toDataURL('image/png'))
   }
