@@ -228,9 +228,8 @@ func (s *Store) DeleteUser(ctx context.Context, orgID, id uuid.UUID) error {
 	})
 }
 
-func (s *Store) TeamHasMembers(ctx context.Context, orgID, teamID uuid.UUID) (bool, error) {
-	return s.exists(ctx, `
-		SELECT EXISTS (SELECT 1 FROM organization_members WHERE organization_id = $1 AND team_id = $2)`, orgID, teamID)
+func (s *Store) TeamHasMembers(ctx context.Context, _, teamID uuid.UUID) (bool, error) {
+	return s.exists(ctx, `SELECT EXISTS (SELECT 1 FROM organization_members WHERE team_id = $1)`, teamID)
 }
 
 func (s *Store) DeleteTeam(ctx context.Context, orgID, id uuid.UUID) error {

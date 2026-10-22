@@ -67,10 +67,8 @@ func (s *Store) UpdateCategory(ctx context.Context, orgID, id uuid.UUID, name st
 	return nil
 }
 
-func (s *Store) CategoryInUse(ctx context.Context, orgID, id uuid.UUID) (bool, error) {
-	return s.exists(ctx, `
-		SELECT EXISTS (SELECT 1 FROM quote_items i JOIN quotes q ON q.id = i.quote_id
-			WHERE q.organization_id = $1 AND i.category_id = $2)`, orgID, id)
+func (s *Store) CategoryInUse(ctx context.Context, _, id uuid.UUID) (bool, error) {
+	return s.exists(ctx, `SELECT EXISTS (SELECT 1 FROM quote_items WHERE category_id = $1)`, id)
 }
 
 func (s *Store) DeleteCategory(ctx context.Context, orgID, id uuid.UUID) error {
