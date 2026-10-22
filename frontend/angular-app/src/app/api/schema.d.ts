@@ -266,10 +266,32 @@ export interface paths {
         get?: never;
         /**
          * Replace a user's name, role, team, client and active flag; optionally reset the password (admin)
-         * @description Removing someone is done by setting active to false; their history is kept. Admins cannot deactivate themselves or change their own role.
+         * @description Removing someone with history is done by setting active to false, which keeps it; accounts without history can be deleted with POST /admin/users/{id}/delete. Admins cannot deactivate themselves or change their own role.
          */
         put: operations["updateUser"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Permanently delete a user (admin)
+         * @description Only for accounts with no quote history. A user who created a quote or appears in any quote's history returns 409 and should be deactivated instead; a WO who leads a team returns 409 until the team has another WO. Admins cannot delete themselves (400). Sent as POST; no body is needed and any body is ignored.
+         */
+        post: operations["deleteUser"];
         delete?: never;
         options?: never;
         head?: never;
@@ -313,6 +335,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/teams/{id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete a team (admin)
+         * @description Only an empty team can be deleted; move its members to another team first (409 otherwise). Sent as POST; no body is needed and any body is ignored.
+         */
+        post: operations["deleteTeam"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/categories": {
         parameters: {
             query?: never;
@@ -343,6 +387,28 @@ export interface paths {
         /** Rename a category or retire it (admin); retired categories stay on existing quotes */
         put: operations["updateCategory"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/categories/{id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete a product category (admin)
+         * @description Only a category that no quote line uses can be deleted (409 otherwise); retire it with active false to hide it instead. Sent as POST; no body is needed and any body is ignored.
+         */
+        post: operations["deleteCategory"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1172,6 +1238,31 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    deleteUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     listTeams: {
         parameters: {
             query?: never;
@@ -1253,6 +1344,30 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
+    deleteTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     createCategory: {
         parameters: {
             query?: never;
@@ -1306,6 +1421,30 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    deleteCategory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
