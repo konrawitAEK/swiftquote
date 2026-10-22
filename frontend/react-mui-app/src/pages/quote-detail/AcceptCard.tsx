@@ -1,6 +1,6 @@
 import { Button, Card, CardContent, Stack, TextField, Typography } from '@mui/material'
 import { useState } from 'react'
-import type { Schemas } from '../../api/client'
+import type { Schemas } from '../../api/types'
 import { SignaturePad } from '../../components/SignaturePad'
 
 /** Customer's signature form on a sent quote. */

@@ -1,6 +1,8 @@
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Stack, Switch, TextField } from '@mui/material'
 import { useState } from 'react'
-import { api, errorText, type Schemas } from '../../api/client'
+import { errorText } from '../../api/http'
+import type { Schemas } from '../../api/types'
+import { adminService } from './adminService'
 
 type Category = Schemas['ProductCategory']
 
@@ -16,13 +18,11 @@ export function CategoryDialog(props: { category: Category | null; onClose: () =
     setBusy(true)
     setError(null)
     try {
-      const res = category
-        ? await api.PUT('/admin/categories/{id}', { params: { path: { id: category.id } }, body: { name, active } })
-        : await api.POST('/admin/categories', { body: { name } })
-      if (res.data) onSaved()
-      else setError(errorText(res.error, 'Could not save category'))
-    } catch {
-      setError('Cannot reach the API')
+      if (category) await adminService.updateCategory(category.id, { name, active })
+      else await adminService.createCategory({ name })
+      onSaved()
+    } catch (err) {
+      setError(errorText(err, 'Could not save category'))
     } finally {
       setBusy(false)
     }

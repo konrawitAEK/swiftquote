@@ -18,9 +18,11 @@ import {
 } from '@mui/material'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
-import { api, errorText, type Schemas } from '../../api/client'
+import { errorText } from '../../api/http'
+import type { Schemas } from '../../api/types'
 import { TotalRow } from '../../components/TotalRow'
 import { calculate, formatMoney, toDecimal } from '../../pricing/pricing'
+import { quoteBuilderService } from './quoteBuilderService'
 
 interface Line {
   key: number
@@ -73,39 +75,46 @@ export function QuoteBuilderPage() {
   const [locked, setLocked] = useState<string | null>(null)
 
   useEffect(() => {
-    api.GET('/categories').then(({ data, error }) => {
-      if (!data) return setError(errorText(error, 'Could not load product categories'))
-      setCategories(data)
-    })
-    api.GET('/clients').then(({ data, error }) => {
-      if (!data) return setError(errorText(error, 'Could not load clients'))
-      setClients(data)
-      if (!editing && data.length === 1) setClientId(data[0].id)
-    })
+    quoteBuilderService
+      .listCategories()
+      .then(setCategories)
+      .catch((err: unknown) => setError(errorText(err, 'Could not load product categories')))
+    quoteBuilderService
+      .listClients()
+      .then((data) => {
+        setClients(data)
+        if (!editing && data.length === 1) setClientId(data[0].id)
+      })
+      .catch((err: unknown) => setError(errorText(err, 'Could not load clients')))
   }, [editing])
 
   useEffect(() => {
     if (!id) return
-    api.GET('/quotes/{id}', { params: { path: { id } } }).then(({ data, error }) => {
-      setLoading(false)
-      if (!data) return setError(errorText(error, 'Could not load quotation'))
-      if (data.status !== 'draft') setLocked(`This quotation is ${data.status.replace('_', ' ')} and can no longer be edited.`)
-      setClientId(data.clientId)
-      setQuoteNumber(data.quoteNumber)
-      setExpiryDate(data.expiryDate)
-      setLines(
-        data.items.map((it) => ({
-          key: nextKey++,
-          title: it.title,
-          categoryId: it.category?.id ?? '',
-          description: it.description ?? '',
-          quantity: String(it.quantity),
-          unitPrice: String(it.unitPrice),
-          discountPercent: String(it.discountPercent),
-          taxPercent: String(it.taxPercent),
-        })),
-      )
-    })
+    quoteBuilderService
+      .get(id)
+      .then((data) => {
+        setLoading(false)
+        if (data.status !== 'draft') setLocked(`This quotation is ${data.status.replace('_', ' ')} and can no longer be edited.`)
+        setClientId(data.clientId)
+        setQuoteNumber(data.quoteNumber)
+        setExpiryDate(data.expiryDate)
+        setLines(
+          data.items.map((it) => ({
+            key: nextKey++,
+            title: it.title,
+            categoryId: it.category?.id ?? '',
+            description: it.description ?? '',
+            quantity: String(it.quantity),
+            unitPrice: String(it.unitPrice),
+            discountPercent: String(it.discountPercent),
+            taxPercent: String(it.taxPercent),
+          })),
+        )
+      })
+      .catch((err: unknown) => {
+        setLoading(false)
+        setError(errorText(err, 'Could not load quotation'))
+      })
   }, [id])
 
   const totals = useMemo(
@@ -143,13 +152,10 @@ export function QuoteBuilderPage() {
       })),
     }
     try {
-      const { data, error } = id
-        ? await api.PUT('/quotes/{id}', { params: { path: { id } }, body })
-        : await api.POST('/quotes', { body })
-      if (data) navigate(`/quotes/${data.id}`)
-      else setError(errorText(error, 'Could not save quotation'))
-    } catch {
-      setError('Cannot reach the API')
+      const data = id ? await quoteBuilderService.update(id, body) : await quoteBuilderService.create(body)
+      navigate(`/quotes/${data.id}`)
+    } catch (err) {
+      setError(errorText(err, 'Could not save quotation'))
     } finally {
       setBusy(false)
     }

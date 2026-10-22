@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react'
-import type { Schemas } from '../api/client'
+import type { Schemas } from '../api/types'
 
 export type AuthUser = Schemas['AuthResponse']['user']
 

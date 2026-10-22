@@ -13,9 +13,11 @@ import {
   Typography,
 } from '@mui/material'
 import { useState } from 'react'
-import { api, errorText, type Role, type Schemas } from '../../api/client'
+import { errorText } from '../../api/http'
+import type { Role, Schemas } from '../../api/types'
 import { useAuth } from '../../auth/auth'
 import { ROLE_LABELS } from '../../auth/roles'
+import { adminService } from './adminService'
 
 type User = Schemas['AdminUser']
 type Team = Schemas['Team']
@@ -45,16 +47,11 @@ export function UserDialog(props: { user: User | null; teams: Team[]; clients: C
       clientId: role === 'customer' && clientId ? clientId : null,
     }
     try {
-      const res = user
-        ? await api.PUT('/admin/users/{id}', {
-            params: { path: { id: user.id } },
-            body: { name, role, active, ...placement, password: password || null },
-          })
-        : await api.POST('/admin/users', { body: { email, name, password, role, ...placement } })
-      if (res.data) onSaved()
-      else setError(errorText(res.error, 'Could not save user'))
-    } catch {
-      setError('Cannot reach the API')
+      if (user) await adminService.updateUser(user.id, { name, role, active, ...placement, password: password || null })
+      else await adminService.createUser({ email, name, password, role, ...placement })
+      onSaved()
+    } catch (err) {
+      setError(errorText(err, 'Could not save user'))
     } finally {
       setBusy(false)
     }

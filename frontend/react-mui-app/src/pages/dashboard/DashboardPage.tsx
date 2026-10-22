@@ -12,10 +12,11 @@ import {
   Typography,
 } from '@mui/material'
 import { useEffect, useState } from 'react'
-import { api, errorText } from '../../api/client'
+import { errorText } from '../../api/http'
 import { StatusChip } from '../../components/StatusChip'
 import { formatMoney } from '../../pricing/pricing'
 import { CategoryBreakdown } from './CategoryBreakdown'
+import { dashboardService } from './dashboardService'
 import { type MeasureKey, type Summary, type View } from './measures'
 import { MonthlyBars } from './MonthlyBars'
 import { RankTables } from './RankTables'
@@ -34,14 +35,18 @@ export function DashboardPage() {
 
   useEffect(() => {
     let cancelled = false
-    api
-      .GET('/dashboard/summary', { params: { query: { ...(from ? { from } : {}), ...(to ? { to } : {}) } } })
-      .then(({ data, error }) => {
+    dashboardService
+      .summary(from, to)
+      .then((data) => {
         if (cancelled) return
-        setData(data ?? null)
-        setError(data ? null : errorText(error, 'Could not load the dashboard'))
+        setData(data)
+        setError(null)
       })
-      .catch(() => !cancelled && setError('Cannot reach the API'))
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setData(null)
+        setError(errorText(err, 'Could not load the dashboard'))
+      })
     return () => {
       cancelled = true
     }
