@@ -3,7 +3,7 @@
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField } from '@mui/material'
 import { useState } from 'react'
 import { errorText, type AdminUser as User, type Team, type TeamRequest } from '@/lib/api/types'
-import { adminService } from './adminService'
+import { adminService } from '@/services/adminService'
 
 /** Add a team or change its name and WO. */
 export function TeamDialog(props: { team: Team | null; wos: User[]; onClose: () => void; onSaved: () => void }) {

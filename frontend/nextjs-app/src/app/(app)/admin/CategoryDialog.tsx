@@ -3,7 +3,7 @@
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Stack, Switch, TextField } from '@mui/material'
 import { useState } from 'react'
 import { errorText, type ProductCategory as Category } from '@/lib/api/types'
-import { adminService } from './adminService'
+import { adminService } from '@/services/adminService'
 
 /** Add a product category, or rename / retire one. Retired categories stay on existing quotes. */
 export function CategoryDialog(props: { category: Category | null; onClose: () => void; onSaved: () => void }) {

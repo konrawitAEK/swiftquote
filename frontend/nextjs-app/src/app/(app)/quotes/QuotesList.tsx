@@ -25,7 +25,7 @@ import { StatusChip } from '@/components/StatusChip'
 import { errorText, isNetworkError, type QuoteStatus, type QuoteSummary, type Role } from '@/lib/api/types'
 import { STATUS_LABELS } from '@/lib/auth/roles'
 import { formatMoney } from '@/lib/pricing/pricing'
-import { quotesService } from './quotesService'
+import { quotesService } from '@/services/quotesService'
 
 const STATUSES: QuoteStatus[] = ['draft', 'pending_approval', 'approved', 'sent', 'viewed', 'accepted', 'rejected']
 const CUSTOMER_STATUSES: QuoteStatus[] = ['sent', 'viewed', 'accepted', 'rejected']

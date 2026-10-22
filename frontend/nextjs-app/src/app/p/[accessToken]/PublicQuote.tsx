@@ -22,7 +22,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { SignaturePad } from '@/components/SignaturePad'
 import { errorText, isNetworkError, type PublicQuoteView } from '@/lib/api/types'
 import { formatMoney } from '@/lib/pricing/pricing'
-import { publicQuoteService } from './publicQuoteService'
+import { publicQuoteService } from '@/services/publicQuoteService'
 
 type LoadState =
   | { kind: 'loading' }

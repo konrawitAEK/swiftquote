@@ -1,5 +1,5 @@
-import { http } from '../../api/http'
-import type { Schemas } from '../../api/types'
+import { http } from '../api/http'
+import type { Schemas } from '../api/types'
 
 export const dashboardService = {
   /** `from` / `to` are ISO dates; empty means unbounded. */

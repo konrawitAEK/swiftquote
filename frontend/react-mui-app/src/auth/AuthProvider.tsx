@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { AUTH_EXPIRED_EVENT, errorText, getToken } from '../api/http'
 import { AuthContext, type AuthUser } from './auth'
-import { authService } from './authService'
+import { authService } from '../services/authService'
 import { ROLE_LABELS } from './roles'
 
 const USER_KEY = 'swiftquote.user'

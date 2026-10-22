@@ -3,7 +3,7 @@
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Stack } from '@mui/material'
 import { useState } from 'react'
 import { errorText } from '@/lib/api/types'
-import { adminService, type DeleteKind } from './adminService'
+import { adminService, type DeleteKind } from '@/services/adminService'
 
 export type DeleteTarget = { kind: DeleteKind; id: string; name: string }
 

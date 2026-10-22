@@ -32,7 +32,7 @@ import { SENT_STATUSES } from '@/lib/auth/roles'
 import { formatMoney } from '@/lib/pricing/pricing'
 import { AcceptCard } from './AcceptCard'
 import { QuoteHistory } from './QuoteHistory'
-import { quoteDetailService } from './quoteDetailService'
+import { quoteDetailService } from '@/services/quoteDetailService'
 import { ShareLink } from './ShareLink'
 import { shareUrl } from './shareUrl'
 

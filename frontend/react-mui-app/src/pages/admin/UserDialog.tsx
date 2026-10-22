@@ -17,7 +17,7 @@ import { errorText } from '../../api/http'
 import type { Role, Schemas } from '../../api/types'
 import { useAuth } from '../../auth/auth'
 import { ROLE_LABELS } from '../../auth/roles'
-import { adminService } from './adminService'
+import { adminService } from '../../services/adminService'
 
 type User = Schemas['AdminUser']
 type Team = Schemas['Team']

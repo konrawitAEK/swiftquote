@@ -18,7 +18,7 @@ import { useState } from 'react'
 import { errorText, type AdminUser as User, type Client, type Role, type Team } from '@/lib/api/types'
 import { useAuth } from '@/components/AuthProvider'
 import { ROLE_LABELS } from '@/lib/auth/roles'
-import { adminService } from './adminService'
+import { adminService } from '@/services/adminService'
 
 const ROLES = Object.keys(ROLE_LABELS) as Role[]
 

@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { AUTH_EXPIRED_EVENT } from '@/lib/api/http'
 import { errorText, isNetworkError } from '@/lib/api/types'
-import { authService } from '@/lib/auth/authService'
+import { authService } from '@/services/authService'
 import { encodeUser, TOKEN_COOKIE, USER_COOKIE, writeCookie, type AuthUser } from '@/lib/auth/session'
 
 export interface AuthState {

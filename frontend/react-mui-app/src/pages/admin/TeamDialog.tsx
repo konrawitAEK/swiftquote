@@ -2,7 +2,7 @@ import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, 
 import { useState } from 'react'
 import { errorText } from '../../api/http'
 import type { Schemas } from '../../api/types'
-import { adminService } from './adminService'
+import { adminService } from '../../services/adminService'
 
 type User = Schemas['AdminUser']
 type Team = Schemas['Team']

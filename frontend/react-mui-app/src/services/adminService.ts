@@ -1,5 +1,5 @@
-import { http } from '../../api/http'
-import type { Schemas } from '../../api/types'
+import { http } from '../api/http'
+import type { Schemas } from '../api/types'
 
 type User = Schemas['AdminUser']
 type Team = Schemas['Team']

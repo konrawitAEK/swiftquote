@@ -1,7 +1,7 @@
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Stack } from '@mui/material'
 import { useState } from 'react'
 import { errorText } from '../../api/http'
-import { adminService } from './adminService'
+import { adminService } from '../../services/adminService'
 
 export type DeleteTarget = { kind: 'user' | 'team' | 'category'; id: string; name: string }
 

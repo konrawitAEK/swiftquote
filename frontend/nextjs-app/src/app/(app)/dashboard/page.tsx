@@ -2,7 +2,7 @@ import { Box, Typography } from '@mui/material'
 import { unstable_rethrow } from 'next/navigation'
 import { errorText } from '@/lib/api/types'
 import { requireRole } from '@/lib/auth/guard'
-import { dashboardService } from './dashboardService'
+import { dashboardService } from '@/services/dashboardService'
 import { DashboardView } from './DashboardView'
 import type { Summary } from './measures'
 

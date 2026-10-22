@@ -1,5 +1,5 @@
-import { http } from '../../api/http'
-import type { Schemas } from '../../api/types'
+import { http } from '../api/http'
+import type { Schemas } from '../api/types'
 
 const publicPath = (accessToken: string, action?: string) =>
   `/public/quotes/${encodeURIComponent(accessToken)}${action ? `/${action}` : ''}`

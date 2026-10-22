@@ -22,7 +22,7 @@ import { errorText } from '../../api/http'
 import type { Schemas } from '../../api/types'
 import { SignaturePad } from '../../components/SignaturePad'
 import { formatMoney } from '../../pricing/pricing'
-import { publicQuoteService } from './publicQuoteService'
+import { publicQuoteService } from '../../services/publicQuoteService'
 
 type LoadState =
   | { kind: 'loading' }

@@ -22,7 +22,7 @@ import { errorText } from '../../api/http'
 import type { Schemas } from '../../api/types'
 import { TotalRow } from '../../components/TotalRow'
 import { calculate, formatMoney, toDecimal } from '../../pricing/pricing'
-import { quoteBuilderService } from './quoteBuilderService'
+import { quoteBuilderService } from '../../services/quoteBuilderService'
 
 interface Line {
   key: number

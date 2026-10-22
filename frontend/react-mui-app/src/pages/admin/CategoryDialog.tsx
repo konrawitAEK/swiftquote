@@ -2,7 +2,7 @@ import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormC
 import { useState } from 'react'
 import { errorText } from '../../api/http'
 import type { Schemas } from '../../api/types'
-import { adminService } from './adminService'
+import { adminService } from '../../services/adminService'
 
 type Category = Schemas['ProductCategory']
 

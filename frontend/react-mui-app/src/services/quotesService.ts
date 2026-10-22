@@ -1,5 +1,5 @@
-import { http } from '../../api/http'
-import type { QuoteStatus, Schemas } from '../../api/types'
+import { http } from '../api/http'
+import type { QuoteStatus, Schemas } from '../api/types'
 
 export const quotesService = {
   async list(status?: QuoteStatus): Promise<Schemas['QuoteSummary'][]> {

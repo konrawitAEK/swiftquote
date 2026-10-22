@@ -8,7 +8,7 @@ import { TotalRow } from '@/components/TotalRow'
 import { errorText, type Client, type CreateQuoteRequest, type ProductCategory } from '@/lib/api/types'
 import { calculate, formatMoney, toDecimal } from '@/lib/pricing/pricing'
 import { LineItems, newLine, type Line } from './LineItems'
-import { quoteBuilderService } from './quoteBuilderService'
+import { quoteBuilderService } from '@/services/quoteBuilderService'
 
 /** YYYY-MM-DD in the user's local time zone. */
 function isoDate(d: Date): string {
