@@ -1,14 +1,17 @@
-import { ChangeDetectionStrategy, Component, effect, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, signal } from '@angular/core';
+import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { finalize } from 'rxjs';
 import { Alert } from '../../components/alert';
 import { SignaturePad } from '../../components/signature-pad';
-import { ApiService, errorText, type Schemas } from '../../core/api.service';
+import { errorText, type Schemas } from '../../core/api';
 import { formatDateTime } from '../../core/format';
 import { formatMoney } from '../../core/pricing';
+import { PublicQuoteService } from '../../services/public-quote.service';
 
 type LoadState =
   | { kind: 'loading' }
@@ -34,12 +37,27 @@ const OFFLINE = 'Cannot reach the server. Please try again.';
   styleUrl: './public-quote-page.scss',
 })
 export class PublicQuotePage {
-  private readonly api = inject(ApiService);
+  private readonly publicApi = inject(PublicQuoteService);
+  private readonly destroyRef = inject(DestroyRef);
 
   /** Route parameter. */
   readonly accessToken = input.required<string>();
 
-  protected readonly state = signal<LoadState>({ kind: 'loading' });
+  /** The quote for the link's access token; a decline updates it locally. */
+  private readonly quoteRes = rxResource({
+    params: () => ({ token: this.accessToken() }),
+    stream: ({ params }) => this.publicApi.get(params.token),
+  });
+  protected readonly state = computed<LoadState>(() => {
+    const err = this.quoteRes.error();
+    if (err) {
+      return {
+        kind: 'error',
+        message: errorText(err, 'Something went wrong', 'Cannot reach the server. Please try again later.'),
+      };
+    }
+    return this.quoteRes.hasValue() ? { kind: 'ready', quote: this.quoteRes.value() } : { kind: 'loading' };
+  });
   protected readonly signerName = signal('');
   protected readonly signature = signal<string | null>(null);
   protected readonly submitError = signal<string | null>(null);
@@ -52,37 +70,25 @@ export class PublicQuotePage {
   protected readonly when = formatDateTime;
   protected readonly valueOf = (e: Event) => (e.target as HTMLInputElement | HTMLTextAreaElement).value;
 
-  constructor() {
-    effect(() => {
-      const token = this.accessToken();
-      this.api
-        .getPublicQuote(token)
-        .then((quote) => this.state.set({ kind: 'ready', quote }))
-        .catch((err: unknown) =>
-          this.state.set({
-            kind: 'error',
-            message: errorText(err, 'Something went wrong', 'Cannot reach the server. Please try again later.'),
-          }),
-        );
-    });
-  }
-
-  protected async decline(): Promise<void> {
+  protected decline(): void {
     this.busy.set(true);
     this.submitError.set(null);
-    try {
-      await this.api.rejectPublicQuote(this.accessToken(), { comment: this.declineReason().trim() || null });
-      const state = this.state();
-      if (state.kind === 'ready') this.state.set({ kind: 'ready', quote: { ...state.quote, status: 'rejected' } });
-    } catch (err) {
-      this.submitError.set(errorText(err, 'Could not decline this quotation', OFFLINE));
-    } finally {
-      this.busy.set(false);
-      this.declining.set(false);
-    }
+    this.publicApi
+      .reject(this.accessToken(), this.declineReason().trim() || null)
+      .pipe(
+        finalize(() => {
+          this.busy.set(false);
+          this.declining.set(false);
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: () => this.quoteRes.update((quote) => quote && { ...quote, status: 'rejected' }),
+        error: (err: unknown) => this.submitError.set(errorText(err, 'Could not decline this quotation', OFFLINE)),
+      });
   }
 
-  protected async accept(e: Event): Promise<void> {
+  protected accept(e: Event): void {
     e.preventDefault();
     const signature = this.signature();
     if (!signature) {
@@ -91,16 +97,15 @@ export class PublicQuotePage {
     }
     this.busy.set(true);
     this.submitError.set(null);
-    try {
-      const data = await this.api.acceptPublicQuote(this.accessToken(), {
-        signerName: this.signerName(),
-        signatureDataUrl: signature,
+    this.publicApi
+      .accept(this.accessToken(), { signerName: this.signerName(), signatureDataUrl: signature })
+      .pipe(
+        finalize(() => this.busy.set(false)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (data) => this.acceptedAt.set(data.signedAt ?? new Date().toISOString()),
+        error: (err: unknown) => this.submitError.set(errorText(err, 'Could not accept this quotation', OFFLINE)),
       });
-      this.acceptedAt.set(data.signedAt ?? new Date().toISOString());
-    } catch (err) {
-      this.submitError.set(errorText(err, 'Could not accept this quotation', OFFLINE));
-    } finally {
-      this.busy.set(false);
-    }
   }
 }

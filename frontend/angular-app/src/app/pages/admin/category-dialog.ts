@@ -5,8 +5,10 @@ import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/materia
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
+import { finalize } from 'rxjs';
 import { Alert } from '../../components/alert';
-import { ApiService, errorText, type Schemas } from '../../core/api.service';
+import { errorText, type Schemas } from '../../core/api';
+import { AdminService } from '../../services/admin.service';
 
 type Category = Schemas['ProductCategory'];
 
@@ -47,7 +49,7 @@ type Category = Schemas['ProductCategory'];
   `,
 })
 export class CategoryDialog {
-  private readonly api = inject(ApiService);
+  private readonly adminApi = inject(AdminService);
   protected readonly ref = inject<MatDialogRef<CategoryDialog, boolean>>(MatDialogRef);
   protected readonly category = inject<Category | null>(MAT_DIALOG_DATA);
 
@@ -56,22 +58,23 @@ export class CategoryDialog {
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
 
-  protected async save(): Promise<void> {
+  protected save(): void {
     this.busy.set(true);
     this.ref.disableClose = true;
     this.error.set(null);
-    try {
-      if (this.category) {
-        await this.api.updateCategory(this.category.id, { name: this.name(), active: this.active() });
-      } else {
-        await this.api.createCategory({ name: this.name() });
-      }
-      this.ref.close(true);
-    } catch (err) {
-      this.error.set(errorText(err, 'Could not save category'));
-    } finally {
-      this.busy.set(false);
-      this.ref.disableClose = false;
-    }
+    const save = this.category
+      ? this.adminApi.updateCategory(this.category.id, { name: this.name(), active: this.active() })
+      : this.adminApi.createCategory({ name: this.name() });
+    save
+      .pipe(
+        finalize(() => {
+          this.busy.set(false);
+          this.ref.disableClose = false;
+        }),
+      )
+      .subscribe({
+        next: () => this.ref.close(true),
+        error: (err: unknown) => this.error.set(errorText(err, 'Could not save category')),
+      });
   }
 }

@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import type { QuoteStatus } from '../core/api.service';
+import type { QuoteStatus } from '../core/api';
 import { STATUS_LABELS } from '../core/roles';
 
 /** Small coloured pill for a quote status. */

@@ -2,8 +2,8 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { MatButtonModule } from '@angular/material/button';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import type { Role } from '../../core/api.service';
-import { AuthService } from '../../core/auth.service';
+import type { Role } from '../../core/api';
+import { AuthService } from '../../services/auth.service';
 import { homePath, ROLE_LABELS } from '../../core/roles';
 
 const NAV: Record<Role, { to: string; label: string }[]> = {

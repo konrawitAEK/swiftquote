@@ -1,8 +1,10 @@
+import { HttpClient } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { ApiService, errorText, type Schemas } from './api.service';
-import { ROLE_LABELS } from './roles';
-import { getToken, setToken } from './token';
+import { map, type Observable } from 'rxjs';
+import { API_URL, type Schemas } from '../core/api';
+import { ROLE_LABELS } from '../core/roles';
+import { getToken, setToken } from '../core/token';
 
 export type AuthUser = Schemas['AuthResponse']['user'];
 
@@ -31,7 +33,7 @@ function saveUser(user: AuthUser | null): void {
 /** Session state as signals; the token itself lives in token.ts so the HTTP interceptor can read it. */
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private readonly api = inject(ApiService);
+  private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
 
   private readonly currentUser = signal<AuthUser | null>(loadUser());
@@ -41,18 +43,18 @@ export class AuthService {
   readonly user = this.currentUser.asReadonly();
   readonly isAuthenticated = computed(() => this.token() !== null && this.currentUser() !== null);
 
-  /** Resolves to an error message, or null on success. */
-  async login(email: string, password: string): Promise<string | null> {
-    try {
-      const data = await this.api.login({ email, password });
-      setToken(data.accessToken);
-      saveUser(data.user);
-      this.token.set(data.accessToken);
-      this.currentUser.set(data.user);
-      return null;
-    } catch (err) {
-      return errorText(err, 'Login failed', 'Cannot reach the API. Is the backend running on :8080?');
-    }
+  /** Signs in and stores the session; emits the signed-in user, or errors with the HttpErrorResponse. */
+  login(email: string, password: string): Observable<AuthUser> {
+    const body: Schemas['LoginRequest'] = { email, password };
+    return this.http.post<Schemas['AuthResponse']>(`${API_URL}/auth/login`, body).pipe(
+      map((data) => {
+        setToken(data.accessToken);
+        saveUser(data.user);
+        this.token.set(data.accessToken);
+        this.currentUser.set(data.user);
+        return data.user;
+      }),
+    );
   }
 
   logout(): void {

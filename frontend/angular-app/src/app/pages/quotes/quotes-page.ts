@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -8,10 +9,11 @@ import { MatSelectModule } from '@angular/material/select';
 import { Router, RouterLink } from '@angular/router';
 import { Alert } from '../../components/alert';
 import { StatusChip } from '../../components/status-chip';
-import { ApiService, errorText, type QuoteStatus, type Role, type Schemas } from '../../core/api.service';
-import { AuthService } from '../../core/auth.service';
+import { errorText, type QuoteStatus, type Role } from '../../core/api';
+import { AuthService } from '../../services/auth.service';
 import { formatMoney } from '../../core/pricing';
 import { STATUS_LABELS } from '../../core/roles';
+import { QuotesService } from '../../services/quotes.service';
 
 const STATUSES: QuoteStatus[] = ['draft', 'pending_approval', 'approved', 'sent', 'viewed', 'accepted', 'rejected'];
 const CUSTOMER_STATUSES: QuoteStatus[] = ['sent', 'viewed', 'accepted', 'rejected'];
@@ -129,7 +131,7 @@ const TITLES: Record<Role, string> = {
   `,
 })
 export class QuotesPage {
-  private readonly api = inject(ApiService);
+  private readonly quotesApi = inject(QuotesService);
   private readonly router = inject(Router);
   private readonly auth = inject(AuthService);
 
@@ -141,32 +143,22 @@ export class QuotesPage {
   protected readonly money = formatMoney;
 
   protected readonly status = signal<QuoteStatus | ''>('');
-  protected readonly quotes = signal<Schemas['QuoteSummary'][] | null>(null);
-  protected readonly error = signal<string | null>(null);
-
-  constructor() {
-    // Reload whenever the status filter changes; a newer request wins over a slower older one.
-    effect((onCleanup) => {
-      const status = this.status();
-      let cancelled = false;
-      onCleanup(() => (cancelled = true));
-      this.api
-        .listQuotes(status || undefined)
-        .then((data) => {
-          if (cancelled) return;
-          this.quotes.set(data);
-          this.error.set(null);
-        })
-        .catch((err: unknown) => {
-          if (cancelled) return;
-          this.quotes.set([]);
-          this.error.set(errorText(err, 'Could not load quotes'));
-        });
-    });
-  }
+  /** Reloads whenever the status filter changes; a newer request cancels a slower older one. */
+  private readonly list = rxResource({
+    params: () => ({ status: this.status() }),
+    stream: ({ params }) => this.quotesApi.list(params.status || undefined),
+  });
+  /** null while loading; empty after a failed load. */
+  protected readonly quotes = computed(() => {
+    if (this.list.status() === 'error') return [];
+    return this.list.hasValue() ? this.list.value() : null;
+  });
+  protected readonly error = computed(() => {
+    const err = this.list.error();
+    return err ? errorText(err, 'Could not load quotes') : null;
+  });
 
   protected setStatus(value: QuoteStatus | ''): void {
-    this.quotes.set(null);
     this.status.set(value);
   }
 

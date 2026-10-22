@@ -5,7 +5,7 @@ import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { SignaturePad } from '../../components/signature-pad';
-import type { Schemas } from '../../core/api.service';
+import type { Schemas } from '../../core/api';
 
 /** Customer's signature form on a sent quote. */
 @Component({
