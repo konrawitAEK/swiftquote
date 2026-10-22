@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { AUTH_EXPIRED_EVENT, errorText, getToken } from '../api/http'
+import { AUTH_EXPIRED_EVENT, errorText, getToken, TOKEN_KEY } from '../api/http'
 import { AuthContext, type AuthUser } from './auth'
 import { authService } from '../services/authService'
 import { ROLE_LABELS } from './roles'
@@ -42,6 +42,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener(AUTH_EXPIRED_EVENT, logout)
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, logout)
   }, [logout])
+
+  // Another tab logged out or signed in as someone else: follow it, so this tab never shows one user while
+  // sending another user's token. Only local state changes here; writing storage could undo the other tab's login.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== null && e.key !== USER_KEY && e.key !== TOKEN_KEY) return
+      const stored = loadUser()
+      if (!stored || !getToken()) {
+        setTokenState(null)
+        setUser(null)
+      } else if (stored.id !== user?.id) {
+        window.location.replace('/') // a different user: reload into their home page with fresh data
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [user])
 
   const login = useCallback(async (email: string, password: string) => {
     try {

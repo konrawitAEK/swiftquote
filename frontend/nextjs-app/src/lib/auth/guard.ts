@@ -32,7 +32,7 @@ export async function getSession(): Promise<AuthUser | null> {
 /** Server-side route guard: no session → /login; a role that may not open the page → its home. */
 export async function requireRole(roles: Role[]): Promise<AuthUser> {
   const user = await getSession()
-  if (!user) redirect('/logout')
+  if (!user) redirect('/login')
   if (!roles.includes(user.role)) redirect(homePath(user.role))
   return user
 }

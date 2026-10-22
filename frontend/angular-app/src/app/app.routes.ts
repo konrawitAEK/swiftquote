@@ -17,6 +17,8 @@ export const routes: Routes = [
     component: AppLayout,
     canActivate: [roleGuard()],
     children: [
+      // "/" itself goes to the role's home page instead of an empty layout.
+      { path: '', pathMatch: 'full', redirectTo: homeRedirect },
       {
         path: 'quotes',
         pathMatch: 'full',

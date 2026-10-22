@@ -1,10 +1,10 @@
 import { HttpClient } from '@angular/common/http';
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { map, type Observable } from 'rxjs';
 import { API_URL } from '../core/api';
 import { ROLE_LABELS } from '../core/roles';
-import { getToken, setToken } from '../core/token';
+import { getToken, setToken, TOKEN_KEY } from '../core/token';
 import type { AuthResponse, LoginRequest } from '../models';
 
 export type AuthUser = AuthResponse['user'];
@@ -49,6 +49,24 @@ export class AuthService {
 
   readonly user = this.currentUser.asReadonly();
   readonly isAuthenticated = computed(() => this.token() !== null && this.currentUser() !== null);
+
+  constructor() {
+    // Another tab logged out or signed in as someone else: follow it, so this tab never shows one user while
+    // sending another user's token. Only local state changes here; writing storage could undo the other tab's login.
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== null && e.key !== USER_KEY && e.key !== TOKEN_KEY) return;
+      const stored = loadUser();
+      if (!stored || !getToken()) {
+        this.token.set(null);
+        this.currentUser.set(null);
+        void this.router.navigateByUrl('/login', { replaceUrl: true });
+      } else if (stored.id !== this.currentUser()?.id) {
+        window.location.replace('/'); // a different user: reload into their home page with fresh data
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    inject(DestroyRef).onDestroy(() => window.removeEventListener('storage', onStorage));
+  }
 
   /** Signs in and stores the session; emits the signed-in user, or errors with the HttpErrorResponse. */
   login(email: string, password: string): Observable<AuthUser> {

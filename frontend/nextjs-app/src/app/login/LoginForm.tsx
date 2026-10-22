@@ -15,7 +15,7 @@ const DEV_ACCOUNTS = [
   { label: 'Customer', email: 'buyer@acme.example' },
 ]
 
-export function LoginForm() {
+export function LoginForm({ expired = false }: { expired?: boolean }) {
   const { login } = useAuth()
   const router = useRouter()
   const [email, setEmail] = useState('rm1@swiftquote.dev')
@@ -48,6 +48,7 @@ export function LoginForm() {
             Sign in to manage your quotations
           </Typography>
           <Stack component="form" spacing={2} onSubmit={submit}>
+            {expired && !error && <Alert severity="info">Your session has ended. Please sign in again.</Alert>}
             {error && <Alert severity="error">{error}</Alert>}
             <TextField
               label="Email"
