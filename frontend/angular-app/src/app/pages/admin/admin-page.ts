@@ -8,8 +8,10 @@ import { MatTabsModule } from '@angular/material/tabs';
 import { firstValueFrom } from 'rxjs';
 import { Alert } from '../../components/alert';
 import { ApiService, errorText, type Schemas } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import { ROLE_LABELS } from '../../core/roles';
 import { CategoryDialog } from './category-dialog';
+import { DeleteDialog, type DeleteTarget } from './delete-dialog';
 import { TeamDialog, type TeamDialogData } from './team-dialog';
 import { UserDialog, type UserDialogData } from './user-dialog';
 
@@ -31,6 +33,7 @@ const ADD_LABELS = ['Add user', 'Add team', 'Add category'];
 export class AdminPage {
   private readonly api = inject(ApiService);
   private readonly dialog = inject(MatDialog);
+  private readonly auth = inject(AuthService);
 
   protected readonly tab = signal(0);
   protected readonly users = signal<User[] | null>(null);
@@ -48,6 +51,8 @@ export class AdminPage {
   });
   private readonly activeWOs = computed(() => (this.users() ?? []).filter((u) => u.role === 'wo' && u.active));
   protected readonly roleLabels = ROLE_LABELS;
+  /** The signed-in admin, whose own row has no Delete. */
+  protected readonly meId = computed(() => this.auth.user()?.id);
 
   constructor() {
     effect((onCleanup) => {
@@ -88,6 +93,12 @@ export class AdminPage {
 
   protected editCategory(category: Category | null): void {
     const ref = this.dialog.open(CategoryDialog, { data: category, width: '444px', maxWidth: '95vw' });
+    this.reloadAfter(firstValueFrom(ref.afterClosed()));
+  }
+
+  protected confirmDelete(kind: DeleteTarget['kind'], item: { id: string; name: string }): void {
+    const data: DeleteTarget = { kind, id: item.id, name: item.name };
+    const ref = this.dialog.open(DeleteDialog, { data, width: '444px', maxWidth: '95vw' });
     this.reloadAfter(firstValueFrom(ref.afterClosed()));
   }
 }

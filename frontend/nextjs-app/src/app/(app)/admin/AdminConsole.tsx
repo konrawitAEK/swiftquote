@@ -20,8 +20,10 @@ import {
 } from '@mui/material'
 import { useEffect, useState } from 'react'
 import { api, errorText, type Schemas } from '@/lib/api/client'
+import { useAuth } from '@/components/AuthProvider'
 import { ROLE_LABELS } from '@/lib/auth/roles'
 import { CategoryDialog } from './CategoryDialog'
+import { DeleteDialog, type DeleteTarget } from './DeleteDialog'
 import { TeamDialog } from './TeamDialog'
 import { UserDialog } from './UserDialog'
 
@@ -43,6 +45,8 @@ export function AdminConsole() {
   const [error, setError] = useState<string | null>(null)
   const [editingUser, setEditingUser] = useState<User | 'new' | null>(null)
   const [editingTeam, setEditingTeam] = useState<Team | 'new' | null>(null)
+  const [deleting, setDeleting] = useState<DeleteTarget | null>(null)
+  const meId = useAuth().user?.id
 
   // Bumped after every save to refetch.
   const [version, setVersion] = useState(0)
@@ -120,6 +124,16 @@ export function AdminConsole() {
                       <Button size="small" onClick={() => setEditingUser(u)}>
                         Edit
                       </Button>
+                      {u.id !== meId && (
+                        <Button
+                          size="small"
+                          color="error"
+                          aria-label={`Delete ${u.name}`}
+                          onClick={() => setDeleting({ kind: 'user', id: u.id, name: u.name })}
+                        >
+                          Delete
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -159,6 +173,14 @@ export function AdminConsole() {
                       <Button size="small" onClick={() => setEditingTeam(t)}>
                         Edit
                       </Button>
+                      <Button
+                        size="small"
+                        color="error"
+                        aria-label={`Delete ${t.name}`}
+                        onClick={() => setDeleting({ kind: 'team', id: t.id, name: t.name })}
+                      >
+                        Delete
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -190,6 +212,14 @@ export function AdminConsole() {
                       <Button size="small" onClick={() => setEditingCategory(c)}>
                         Edit
                       </Button>
+                      <Button
+                        size="small"
+                        color="error"
+                        aria-label={`Delete ${c.name}`}
+                        onClick={() => setDeleting({ kind: 'category', id: c.id, name: c.name })}
+                      >
+                        Delete
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -202,6 +232,16 @@ export function AdminConsole() {
         )}
       </Card>
 
+      {deleting && (
+        <DeleteDialog
+          target={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null)
+            reload()
+          }}
+        />
+      )}
       {editingCategory && (
         <CategoryDialog
           category={editingCategory === 'new' ? null : editingCategory}

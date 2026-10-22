@@ -34,7 +34,20 @@
                     <td>
                       <span class="pill" [class.ok]="u.active">{{ u.active ? 'Active' : 'Inactive' }}</span>
                     </td>
-                    <td class="right"><button mat-button type="button" (click)="editUser(u)">Edit</button></td>
+                    <td class="right">
+                      <button mat-button type="button" (click)="editUser(u)">Edit</button>
+                      @if (u.id !== meId()) {
+                        <button
+                          mat-button
+                          type="button"
+                          class="danger-text"
+                          [attr.aria-label]="'Delete ' + u.name"
+                          (click)="confirmDelete('user', u)"
+                        >
+                          Delete
+                        </button>
+                      }
+                    </td>
                   </tr>
                 }
               </tbody>
@@ -68,7 +81,18 @@
                         }
                       </div>
                     </td>
-                    <td class="right"><button mat-button type="button" (click)="editTeam(t)">Edit</button></td>
+                    <td class="right">
+                      <button mat-button type="button" (click)="editTeam(t)">Edit</button>
+                      <button
+                        mat-button
+                        type="button"
+                        class="danger-text"
+                        [attr.aria-label]="'Delete ' + t.name"
+                        (click)="confirmDelete('team', t)"
+                      >
+                        Delete
+                      </button>
+                    </td>
                   </tr>
                 }
               </tbody>
@@ -95,7 +119,18 @@
                     <td>
                       <span class="pill" [class.ok]="c.active">{{ c.active ? 'Active' : 'Retired' }}</span>
                     </td>
-                    <td class="right"><button mat-button type="button" (click)="editCategory(c)">Edit</button></td>
+                    <td class="right">
+                      <button mat-button type="button" (click)="editCategory(c)">Edit</button>
+                      <button
+                        mat-button
+                        type="button"
+                        class="danger-text"
+                        [attr.aria-label]="'Delete ' + c.name"
+                        (click)="confirmDelete('category', c)"
+                      >
+                        Delete
+                      </button>
+                    </td>
                   </tr>
                 }
               </tbody>
