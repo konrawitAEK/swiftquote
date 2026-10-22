@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, linkedSignal, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, linkedSignal, signal, untracked } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -7,7 +7,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize, from, switchMap, type Subscription } from 'rxjs';
 import { Alert } from '../../components/alert';
 import { TotalRow } from '../../components/total-row';
@@ -78,8 +78,11 @@ export class QuoteBuilderPage {
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
 
-  /** Route parameter; undefined on /quotes/new. */
-  readonly id = input<string>();
+  /**
+   * The :id path parameter; undefined on /quotes/new. Read from the route itself rather than an input(), because
+   * input binding also maps query params, and /quotes/new?id=... must not turn into an edit.
+   */
+  protected readonly id = signal(inject(ActivatedRoute).snapshot.paramMap.get('id') ?? undefined);
   protected readonly editing = computed(() => this.id() !== undefined);
 
   private readonly categoriesRes = rxResource({ stream: () => this.builderApi.categories() });

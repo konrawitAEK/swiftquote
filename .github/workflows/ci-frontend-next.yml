@@ -1,6 +1,8 @@
 name: Frontend Next.js
 on:
+  # PRs run on pull_request; push only for main, so a PR branch isn't built twice.
   push:
+    branches: [main]
     paths: ["frontend/nextjs-app/**", "contracts/**", ".github/workflows/ci-frontend-next.yml"]
   pull_request:
     paths: ["frontend/nextjs-app/**", "contracts/**", ".github/workflows/ci-frontend-next.yml"]
@@ -28,3 +30,5 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Docker image builds
+        run: docker build --build-arg NEXT_PUBLIC_API_URL=http://localhost:8080/api/v1 -t swiftquote-next-ci .

@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { AUTH_EXPIRED_EVENT } from '@/lib/api/http'
 import { errorText, isNetworkError } from '@/lib/api/types'
 import { authService } from '@/services/authService'
-import { encodeUser, TOKEN_COOKIE, USER_COOKIE, writeCookie, type AuthUser } from '@/lib/auth/session'
+import { encodeUser, TOKEN_COOKIE, tokenMaxAge, USER_COOKIE, writeCookie, type AuthUser } from '@/lib/auth/session'
 
 export interface AuthState {
   user: AuthUser | null
@@ -42,8 +42,9 @@ export function AuthProvider({ initialUser, children }: { initialUser: AuthUser 
   const login = useCallback(async (email: string, password: string) => {
     try {
       const data = await authService.login({ email, password })
-      writeCookie(TOKEN_COOKIE, data.accessToken)
-      writeCookie(USER_COOKIE, encodeUser(data.user))
+      const maxAge = tokenMaxAge(data.accessToken)
+      writeCookie(TOKEN_COOKIE, data.accessToken, maxAge)
+      writeCookie(USER_COOKIE, encodeUser(data.user), maxAge)
       setUser(data.user)
       return data.user
     } catch (e) {

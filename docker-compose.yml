@@ -37,7 +37,6 @@ services:
       DB_PASSWORD: password
       DB_NAME: swiftquote
       JWT_SECRET: swiftquote-dev-only-jwt-secret-change-me
-      STORAGE: postgres
     depends_on:
       postgres:
         condition: service_healthy
@@ -121,6 +120,8 @@ services:
     environment:
       # Runtime: Server Components call the API inside the compose network.
       API_INTERNAL_URL: http://api:8080/api/v1
+      # Server-only: verifies the session JWT so the role used for routing can't be forged.
+      JWT_SECRET: swiftquote-dev-only-jwt-secret-change-me
     networks:
       - internal-net
 

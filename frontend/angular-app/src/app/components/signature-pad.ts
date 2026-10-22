@@ -72,6 +72,7 @@ export class SignaturePad {
   private readonly canvas = viewChild.required<ElementRef<HTMLCanvasElement>>('canvas');
   protected readonly empty = signal(true);
   private drawing = false;
+  private moved = false;
 
   constructor() {
     // Match the backing store to the displayed size so strokes are crisp and under the pointer.
@@ -103,6 +104,7 @@ export class SignaturePad {
     if (!ctx) return;
     canvas.setPointerCapture(e.pointerId);
     this.drawing = true;
+    this.moved = false;
     const { x, y } = this.point(e);
     ctx.beginPath();
     ctx.moveTo(x, y);
@@ -115,11 +117,13 @@ export class SignaturePad {
     const { x, y } = this.point(e);
     ctx.lineTo(x, y);
     ctx.stroke();
+    this.moved = true;
   }
 
   protected end(): void {
     if (!this.drawing) return;
     this.drawing = false;
+    if (!this.moved) return; // a tap draws nothing, so it is not a signature
     this.empty.set(false);
     this.signatureChange.emit(this.canvas().nativeElement.toDataURL('image/png'));
   }

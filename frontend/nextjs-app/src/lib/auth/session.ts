@@ -5,7 +5,6 @@ import type { AuthResponse, Role } from '@/models'
 export const TOKEN_COOKIE = 'swiftquote_token'
 /** The signed-in user ({id, name, role}) so the server can guard routes by role. */
 export const USER_COOKIE = 'swiftquote_user'
-export const COOKIE_MAX_AGE = 7 * 24 * 60 * 60
 
 export type AuthUser = AuthResponse['user']
 
@@ -33,10 +32,21 @@ export function readCookie(name: string): string | null {
   return hit ? hit.slice(prefix.length) : null
 }
 
-export function writeCookie(name: string, value: string | null): void {
+/** Seconds until the JWT's exp claim (0 if unreadable), so the session cookies die with the token. */
+export function tokenMaxAge(token: string): number {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) as { exp?: number }
+    return typeof payload.exp === 'number' ? Math.max(0, Math.floor(payload.exp - Date.now() / 1000)) : 0
+  } catch {
+    return 0
+  }
+}
+
+/** Sets a cookie for maxAge seconds, or deletes it when value is null. */
+export function writeCookie(name: string, value: string | null, maxAge = 0): void {
   const secure = window.location.protocol === 'https:' ? '; Secure' : ''
   document.cookie =
     value === null
       ? `${name}=; Path=/; Max-Age=0; SameSite=Lax${secure}`
-      : `${name}=${value}; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax${secure}`
+      : `${name}=${value}; Path=/; Max-Age=${maxAge}; SameSite=Lax${secure}`
 }

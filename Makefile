@@ -68,7 +68,7 @@ test-next:
 
 # The Angular CLI needs Node >= 22.22.3 (or 24.15+).
 test-angular:
-	cd frontend/angular-app && npm ci --silent && npm run lint && npm test && npm run build
+	cd frontend/angular-app && npm ci --silent && npm run lint && npm run typecheck && npm test && npm run build
 
 # Like test-go: Postgres-backed tests use a throwaway $(TEST_DB) recreated from db/migrations.
 test-node:
