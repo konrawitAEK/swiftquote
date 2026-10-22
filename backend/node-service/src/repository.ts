@@ -23,6 +23,7 @@ pg.types.setTypeParser(pg.types.builtins.TIMESTAMPTZ, rfc3339)
 pg.types.setTypeParser(pg.types.builtins.INT8, (v) => Number(v))
 
 const UNIQUE_VIOLATION = '23505'
+const FOREIGN_KEY_VIOLATION = '23503'
 
 export function rfc3339(v: string): string {
   const m = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(\.\d+)?([+-])(\d{2})(?::?(\d{2}))?(?::?(\d{2}))?$/.exec(v)
@@ -36,7 +37,21 @@ export function rfc3339(v: string): string {
 
 export class DuplicateError extends Error {}
 
+/** A delete blocked by a foreign key (a row was referenced after the service's checks). */
+export class InUseError extends Error {}
+
 const isUniqueViolation = (err: unknown) => (err as { code?: string }).code === UNIQUE_VIOLATION
+const isForeignKeyViolation = (err: unknown) => (err as { code?: string }).code === FOREIGN_KEY_VIOLATION
+
+/** Runs a delete, reporting a foreign-key violation as InUseError. */
+async function deleting<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    if (isForeignKeyViolation(err)) throw new InUseError()
+    throw err
+  }
+}
 
 type Row = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -351,6 +366,15 @@ export class Repository {
     }
   }
 
+  categoryInUse(_orgId: string, id: string): Promise<boolean> {
+    return this.exists(`SELECT EXISTS (SELECT 1 FROM quote_items WHERE category_id = $1)`, [id])
+  }
+
+  /** InUseError if a quote line references it. */
+  async deleteCategory(orgId: string, id: string): Promise<void> {
+    await deleting(() => this.pool.query(`DELETE FROM product_categories WHERE organization_id = $1 AND id = $2`, [orgId, id]))
+  }
+
   async activeCategoryIds(orgId: string): Promise<Set<string>> {
     const { rows } = await this.pool.query(
       `SELECT id FROM product_categories WHERE organization_id = $1 AND active`,
@@ -578,6 +602,28 @@ export class Repository {
     })
   }
 
+  /** Removes the membership, then the account itself once it belongs to no organization; InUseError on a foreign key. */
+  async deleteUser(orgId: string, id: string): Promise<void> {
+    await deleting(() =>
+      this.tx(async (c) => {
+        await c.query(`DELETE FROM organization_members WHERE organization_id = $1 AND user_id = $2`, [orgId, id])
+        await c.query(
+          `DELETE FROM users WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM organization_members WHERE user_id = $1)`,
+          [id],
+        )
+      }),
+    )
+  }
+
+  /** Whether the user created a quote or acted in any quote's history, in any organization. */
+  hasQuoteHistory(userId: string): Promise<boolean> {
+    return this.exists(
+      `SELECT EXISTS (SELECT 1 FROM quotes WHERE created_by = $1)
+         OR EXISTS (SELECT 1 FROM quote_events WHERE actor_user_id = $1) AS exists`,
+      [userId],
+    )
+  }
+
   teamExists(orgId: string, teamId: string): Promise<boolean> {
     return this.exists(`SELECT EXISTS (SELECT 1 FROM teams WHERE id = $1 AND organization_id = $2)`, [teamId, orgId])
   }
@@ -626,6 +672,22 @@ export class Repository {
     )
     for (const r of members.rows) byId.get(r.team_id)?.members.push({ id: r.id, name: r.full_name })
     return teams
+  }
+
+  /** Whether any membership, active or not, is placed in the team. */
+  teamHasMembers(_orgId: string, id: string): Promise<boolean> {
+    return this.exists(`SELECT EXISTS (SELECT 1 FROM organization_members WHERE team_id = $1)`, [id])
+  }
+
+  /** InUseError if a member was placed in the team meanwhile. */
+  async deleteTeam(orgId: string, id: string): Promise<void> {
+    // members.team_id is ON DELETE SET NULL, so no foreign key stops this; re-check emptiness in the same statement.
+    const res = await this.pool.query(
+      `DELETE FROM teams t WHERE t.organization_id = $1 AND t.id = $2
+         AND NOT EXISTS (SELECT 1 FROM organization_members m WHERE m.team_id = t.id)`,
+      [orgId, id],
+    )
+    if ((res.rowCount ?? 0) === 0) throw new InUseError()
   }
 
   /** DuplicateError for an existing team name. */
