@@ -13,6 +13,6 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except login/logout, the public client portal and static assets.
-  matcher: ['/((?!login|logout|p/|_next/|icon\\.svg|favicon\\.ico).*)'],
+  // Everything except login, the public client portal and static assets.
+  matcher: ['/((?!login|p/|_next/|icon\\.svg|favicon\\.ico).*)'],
 }

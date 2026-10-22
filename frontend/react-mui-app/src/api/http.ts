@@ -3,7 +3,7 @@ import type { ErrorResponse } from '../models'
 
 export const API_URL: string = import.meta.env.VITE_API_URL ?? 'http://localhost:8080/api/v1'
 
-const TOKEN_KEY = 'swiftquote.token'
+export const TOKEN_KEY = 'swiftquote.token'
 
 // localStorage can throw (private mode, blocked storage); auth then lasts for the tab only.
 let memoryToken: string | null = null

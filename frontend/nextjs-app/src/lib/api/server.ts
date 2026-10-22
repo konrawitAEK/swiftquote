@@ -11,7 +11,8 @@ const SERVER_API_URL = process.env.API_INTERNAL_URL || PUBLIC_API_URL
 
 /**
  * Axios instance for Server Components, authenticated with the session cookie.
- * A 401 means the session is gone: redirect to /logout (clears the cookies, then lands on /login).
+ * A 401 means the API no longer accepts the session (e.g. the account was deactivated while the token is still
+ * valid): show the login form with a notice. The next sign-in replaces the cookies.
  * redirect() throws, so callers that catch errors must call unstable_rethrow() first.
  */
 export async function serverApi(): Promise<AxiosInstance> {
@@ -21,7 +22,7 @@ export async function serverApi(): Promise<AxiosInstance> {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   })
   instance.interceptors.response.use(undefined, (error: unknown) => {
-    if (isAxiosError(error) && error.response?.status === 401) redirect('/logout')
+    if (isAxiosError(error) && error.response?.status === 401) redirect('/login?expired=1')
     return Promise.reject(error)
   })
   return instance
