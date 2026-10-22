@@ -31,6 +31,11 @@ function saveUser(user: AuthUser | null): void {
   }
 }
 
+function discardToken(): null {
+  setToken(null);
+  return null;
+}
+
 /** Session state as signals; the token itself lives in token.ts so the HTTP interceptor can read it. */
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -38,8 +43,9 @@ export class AuthService {
   private readonly router = inject(Router);
 
   private readonly currentUser = signal<AuthUser | null>(loadUser());
-  // A token without a usable stored user (e.g. saved by an older version) is discarded.
-  private readonly token = signal<string | null>(this.currentUser() ? getToken() : null);
+  // A token without a usable stored user (e.g. saved by an older version) is discarded, from storage too,
+  // so the interceptor (which reads storage) stops sending it.
+  private readonly token = signal<string | null>(this.currentUser() ? getToken() : discardToken());
 
   readonly user = this.currentUser.asReadonly();
   readonly isAuthenticated = computed(() => this.token() !== null && this.currentUser() !== null);
