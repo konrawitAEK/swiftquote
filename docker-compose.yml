@@ -37,7 +37,6 @@ services:
       DB_PASSWORD: password
       DB_NAME: swiftquote
       JWT_SECRET: swiftquote-dev-only-jwt-secret-change-me
-      STORAGE: postgres
     depends_on:
       postgres:
         condition: service_healthy
