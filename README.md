@@ -8,6 +8,7 @@ Multi-tenant Quotation & Pipeline Management SaaS — an interchangeable polyglo
 - DB: PostgreSQL 16, migrations in `db/migrations`
 
 Full design: [docs/MASTER_BLUEPRINT.md](docs/MASTER_BLUEPRINT.md)
+How to read the code in each language (Thai): [docs/CODE_READING_GUIDE.md](docs/CODE_READING_GUIDE.md)
 
 ## Quick start
 
