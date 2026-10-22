@@ -27,15 +27,15 @@ import { useCallback, useEffect, useState } from 'react'
 import NextLink from 'next/link'
 import { StatusChip } from '@/components/StatusChip'
 import { TotalRow } from '@/components/TotalRow'
-import { api, errorText, type Role, type Schemas } from '@/lib/api/client'
+import { errorText, type QuoteDetail as Quote, type Role } from '@/lib/api/types'
 import { SENT_STATUSES } from '@/lib/auth/roles'
 import { formatMoney } from '@/lib/pricing/pricing'
 import { AcceptCard } from './AcceptCard'
 import { QuoteHistory } from './QuoteHistory'
+import { quoteDetailService } from '@/services/quoteDetailService'
 import { ShareLink } from './ShareLink'
 import { shareUrl } from './shareUrl'
 
-type Quote = Schemas['QuoteDetail']
 type CommentAction = 'submit' | 'approve' | 'return' | 'reject'
 
 interface DialogSpec {
@@ -75,34 +75,26 @@ export function QuoteDetail({ id, role }: { id: string; role: Role }) {
 
   useEffect(() => {
     let cancelled = false
-    api
-      .GET('/quotes/{id}', { params: { path: { id } } })
-      .then(({ data, error }) => {
-        if (cancelled) return
-        if (data) setQuote(data)
-        else setError(errorText(error, 'Could not load quotation'))
-      })
-      .catch(() => !cancelled && setError('Cannot reach the API'))
+    quoteDetailService
+      .get(id)
+      .then((data) => !cancelled && setQuote(data))
+      .catch((e: unknown) => !cancelled && setError(errorText(e, 'Could not load quotation')))
     return () => {
       cancelled = true
     }
   }, [id])
 
   /** Runs a workflow call and shows the updated quote or the server's error. */
-  const run = useCallback(async (call: () => Promise<{ data?: Quote; error?: Schemas['ErrorResponse'] }>) => {
+  const run = useCallback(async (call: () => Promise<Quote>) => {
     setBusy(true)
     setActionError(null)
     try {
-      const { data, error } = await call()
-      if (data) {
-        setQuote(data)
-        setDialog(null)
-        setComment('')
-      } else {
-        setActionError(errorText(error, 'Action failed'))
-      }
-    } catch {
-      setActionError('Cannot reach the API')
+      const data = await call()
+      setQuote(data)
+      setDialog(null)
+      setComment('')
+    } catch (e) {
+      setActionError(errorText(e, 'Action failed'))
     } finally {
       setBusy(false)
     }
@@ -110,15 +102,9 @@ export function QuoteDetail({ id, role }: { id: string; role: Role }) {
 
   const confirmDialog = () => {
     if (!dialog) return
-    const body = { comment: comment.trim() || null }
-    const path = { params: { path: { id } }, body }
-    const calls = {
-      submit: () => api.POST('/quotes/{id}/submit', path),
-      approve: () => api.POST('/quotes/{id}/approve', path),
-      return: () => api.POST('/quotes/{id}/return', path),
-      reject: () => api.POST('/quotes/{id}/reject', path),
-    }
-    void run(calls[dialog.action])
+    const { action } = dialog
+    const text = comment.trim() || null
+    void run(() => quoteDetailService[action](id, text))
   }
 
   if (error) return <Alert severity="error">{error}</Alert>
@@ -170,7 +156,7 @@ export function QuoteDetail({ id, role }: { id: string; role: Role }) {
             </Button>
           )}
           {can.send && (
-            <Button variant="contained" disabled={busy} onClick={() => run(() => api.POST('/quotes/{id}/send', { params: { path: { id } } }))}>
+            <Button variant="contained" disabled={busy} onClick={() => run(() => quoteDetailService.send(id))}>
               Send to customer
             </Button>
           )}
@@ -255,7 +241,7 @@ export function QuoteDetail({ id, role }: { id: string; role: Role }) {
         </CardContent>
       </Card>
 
-      {can.respond && <AcceptCard busy={busy} onAccept={(body) => run(() => api.POST('/quotes/{id}/accept', { params: { path: { id } }, body }))} />}
+      {can.respond && <AcceptCard busy={busy} onAccept={(body) => run(() => quoteDetailService.accept(id, body))} />}
 
       <Card>
         <CardContent>

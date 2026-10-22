@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, linkedSignal, signal } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatCardModule } from '@angular/material/card';
@@ -7,9 +8,10 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { Alert } from '../../components/alert';
 import { StatusChip } from '../../components/status-chip';
-import { ApiService, errorText } from '../../core/api.service';
+import { errorText } from '../../core/api';
 import { formatMoney } from '../../core/pricing';
 import { CategoryBreakdown } from './category-breakdown';
+import { DashboardService } from '../../services/dashboard.service';
 import type { MeasureKey, Summary, View } from './measures';
 import { MonthlyBars, type MonthPoint } from './monthly-bars';
 import { RankTables } from './rank-tables';
@@ -79,14 +81,28 @@ function tilesFor(data: Summary, view: View, measure: MeasureKey): Tile[] {
   styleUrl: './dashboard-page.scss',
 })
 export class DashboardPage {
-  private readonly api = inject(ApiService);
+  private readonly dashboardApi = inject(DashboardService);
 
   protected readonly from = signal('');
   protected readonly to = signal('');
   protected readonly view = signal<View>('won');
   protected readonly categoryMeasure = signal<MeasureKey>('won');
-  protected readonly data = signal<Summary | null>(null);
-  protected readonly error = signal<string | null>(null);
+
+  /** Refetches when the period changes; switching views reuses the same summary. */
+  private readonly summary = rxResource({
+    params: () => ({ from: this.from(), to: this.to() }),
+    stream: ({ params }) => this.dashboardApi.summary(params.from, params.to),
+  });
+  /** The latest summary, kept on screen while a new period loads; null after a failed load. */
+  protected readonly data = linkedSignal({
+    source: this.summary.snapshot,
+    computation: (snap, previous?: { value: Summary | null }): Summary | null =>
+      snap.status === 'error' ? null : (snap.value ?? previous?.value ?? null),
+  });
+  protected readonly error = computed(() => {
+    const err = this.summary.error();
+    return err ? errorText(err, 'Could not load the dashboard') : null;
+  });
 
   protected readonly measure = computed<MeasureKey>(() => {
     const view = this.view();
@@ -105,28 +121,6 @@ export class DashboardPage {
   });
 
   protected readonly pipeline = computed(() => this.data()?.byStatus.filter((s) => s.status !== 'expired') ?? []);
-
-  constructor() {
-    // Refetch when the period changes; switching views reuses the same summary.
-    effect((onCleanup) => {
-      const from = this.from();
-      const to = this.to();
-      let cancelled = false;
-      onCleanup(() => (cancelled = true));
-      this.api
-        .dashboardSummary(from, to)
-        .then((data) => {
-          if (cancelled) return;
-          this.data.set(data);
-          this.error.set(null);
-        })
-        .catch((err: unknown) => {
-          if (cancelled) return;
-          this.data.set(null);
-          this.error.set(errorText(err, 'Could not load the dashboard'));
-        });
-    });
-  }
 
   protected setView(value: View | null): void {
     if (value) this.view.set(value);

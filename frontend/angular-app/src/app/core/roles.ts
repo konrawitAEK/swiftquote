@@ -1,4 +1,4 @@
-import type { QuoteStatus, Role } from './api.service';
+import type { QuoteStatus, Role } from './api';
 
 export const ROLE_LABELS: Record<Role, string> = {
   admin: 'Admin',

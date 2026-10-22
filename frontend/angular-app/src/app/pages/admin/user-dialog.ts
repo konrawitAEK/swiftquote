@@ -6,10 +6,12 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
+import { finalize } from 'rxjs';
 import { Alert } from '../../components/alert';
-import { ApiService, errorText, type Role, type Schemas } from '../../core/api.service';
-import { AuthService } from '../../core/auth.service';
+import { errorText, type Role, type Schemas } from '../../core/api';
+import { AuthService } from '../../services/auth.service';
 import { ROLE_LABELS, ROLES } from '../../core/roles';
+import { AdminService } from '../../services/admin.service';
 
 type User = Schemas['AdminUser'];
 type Team = Schemas['Team'];
@@ -114,7 +116,7 @@ export interface UserDialogData {
   `,
 })
 export class UserDialog {
-  private readonly api = inject(ApiService);
+  private readonly adminApi = inject(AdminService);
   protected readonly ref = inject<MatDialogRef<UserDialog, boolean>>(MatDialogRef);
   protected readonly data = inject<UserDialogData>(MAT_DIALOG_DATA);
   protected readonly user = this.data.user;
@@ -132,7 +134,7 @@ export class UserDialog {
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
 
-  protected async save(): Promise<void> {
+  protected save(): void {
     this.busy.set(true);
     this.ref.disableClose = true;
     this.error.set(null);
@@ -141,24 +143,25 @@ export class UserDialog {
       teamId: role === 'rm' && this.teamId() ? this.teamId() : null,
       clientId: role === 'customer' && this.clientId() ? this.clientId() : null,
     };
-    try {
-      if (this.user) {
-        await this.api.updateUser(this.user.id, {
+    const save = this.user
+      ? this.adminApi.updateUser(this.user.id, {
           name: this.name(),
           role,
           active: this.active(),
           ...placement,
           password: this.password() || null,
-        });
-      } else {
-        await this.api.createUser({ email: this.email(), name: this.name(), password: this.password(), role, ...placement });
-      }
-      this.ref.close(true);
-    } catch (err) {
-      this.error.set(errorText(err, 'Could not save user'));
-    } finally {
-      this.busy.set(false);
-      this.ref.disableClose = false;
-    }
+        })
+      : this.adminApi.createUser({ email: this.email(), name: this.name(), password: this.password(), role, ...placement });
+    save
+      .pipe(
+        finalize(() => {
+          this.busy.set(false);
+          this.ref.disableClose = false;
+        }),
+      )
+      .subscribe({
+        next: () => this.ref.close(true),
+        error: (err: unknown) => this.error.set(errorText(err, 'Could not save user')),
+      });
   }
 }

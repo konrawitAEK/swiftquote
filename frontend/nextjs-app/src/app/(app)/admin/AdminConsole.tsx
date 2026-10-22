@@ -19,18 +19,14 @@ import {
   Typography,
 } from '@mui/material'
 import { useEffect, useState } from 'react'
-import { api, errorText, type Schemas } from '@/lib/api/client'
+import { errorText, type AdminUser as User, type Client, type ProductCategory as Category, type Team } from '@/lib/api/types'
 import { useAuth } from '@/components/AuthProvider'
 import { ROLE_LABELS } from '@/lib/auth/roles'
+import { adminService } from '@/services/adminService'
 import { CategoryDialog } from './CategoryDialog'
 import { DeleteDialog, type DeleteTarget } from './DeleteDialog'
 import { TeamDialog } from './TeamDialog'
 import { UserDialog } from './UserDialog'
-
-type User = Schemas['AdminUser']
-type Team = Schemas['Team']
-type Client = Schemas['Client']
-type Category = Schemas['ProductCategory']
 
 const ADD_LABELS = ['Add user', 'Add team', 'Add category']
 
@@ -54,18 +50,16 @@ export function AdminConsole() {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([api.GET('/admin/users'), api.GET('/admin/teams'), api.GET('/clients'), api.GET('/categories')])
-      .then(([u, t, c, cat]) => {
+    adminService
+      .loadAll()
+      .then((data) => {
         if (cancelled) return
-        if (!u.data || !t.data || !c.data || !cat.data) {
-          return setError(errorText(u.error ?? t.error ?? c.error ?? cat.error, 'Could not load'))
-        }
-        setUsers(u.data)
-        setTeams(t.data)
-        setClients(c.data)
-        setCategories(cat.data)
+        setUsers(data.users)
+        setTeams(data.teams)
+        setClients(data.clients)
+        setCategories(data.categories)
       })
-      .catch(() => !cancelled && setError('Cannot reach the API'))
+      .catch((e: unknown) => !cancelled && setError(errorText(e, 'Could not load')))
     return () => {
       cancelled = true
     }

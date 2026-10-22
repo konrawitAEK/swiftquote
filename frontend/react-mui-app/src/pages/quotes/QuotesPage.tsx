@@ -18,11 +18,13 @@ import {
 } from '@mui/material'
 import { useEffect, useState } from 'react'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
-import { api, errorText, type QuoteStatus, type Role, type Schemas } from '../../api/client'
+import { errorText } from '../../api/http'
+import type { QuoteStatus, Role, Schemas } from '../../api/types'
 import { useAuth } from '../../auth/auth'
 import { STATUS_LABELS } from '../../auth/roles'
 import { StatusChip } from '../../components/StatusChip'
 import { formatMoney } from '../../pricing/pricing'
+import { quotesService } from '../../services/quotesService'
 
 const STATUSES: QuoteStatus[] = ['draft', 'pending_approval', 'approved', 'sent', 'viewed', 'accepted', 'rejected']
 const CUSTOMER_STATUSES: QuoteStatus[] = ['sent', 'viewed', 'accepted', 'rejected']
@@ -45,14 +47,18 @@ export function QuotesPage() {
 
   useEffect(() => {
     let cancelled = false
-    api
-      .GET('/quotes', { params: { query: status ? { status } : {} } })
-      .then(({ data, error }) => {
+    quotesService
+      .list(status || undefined)
+      .then((data) => {
         if (cancelled) return
-        setQuotes(data ?? [])
-        setError(data ? null : errorText(error, 'Could not load quotes'))
+        setQuotes(data)
+        setError(null)
       })
-      .catch(() => !cancelled && setError('Cannot reach the API'))
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setQuotes([])
+        setError(errorText(err, 'Could not load quotes'))
+      })
     return () => {
       cancelled = true
     }

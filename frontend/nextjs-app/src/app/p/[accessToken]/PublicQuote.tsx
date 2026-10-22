@@ -20,13 +20,14 @@ import {
 } from '@mui/material'
 import { useEffect, useState, type FormEvent } from 'react'
 import { SignaturePad } from '@/components/SignaturePad'
-import { api, errorText, type Schemas } from '@/lib/api/client'
+import { errorText, isNetworkError, type PublicQuoteView } from '@/lib/api/types'
 import { formatMoney } from '@/lib/pricing/pricing'
+import { publicQuoteService } from '@/services/publicQuoteService'
 
 type LoadState =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
-  | { kind: 'ready'; quote: Schemas['PublicQuoteView'] }
+  | { kind: 'ready'; quote: PublicQuoteView }
 
 /** Client portal: no login, addressed by the quote's access token. */
 export function PublicQuote({ accessToken }: { accessToken: string }) {
@@ -40,26 +41,25 @@ export function PublicQuote({ accessToken }: { accessToken: string }) {
   const [declineReason, setDeclineReason] = useState('')
 
   useEffect(() => {
-    api
-      .GET('/public/quotes/{accessToken}', { params: { path: { accessToken } } })
-      .then(({ data, error }) =>
-        setState(data ? { kind: 'ready', quote: data } : { kind: 'error', message: errorText(error) }),
+    publicQuoteService
+      .get(accessToken)
+      .then((quote) => setState({ kind: 'ready', quote }))
+      .catch((e: unknown) =>
+        setState({
+          kind: 'error',
+          message: isNetworkError(e) ? 'Cannot reach the server. Please try again later.' : errorText(e),
+        }),
       )
-      .catch(() => setState({ kind: 'error', message: 'Cannot reach the server. Please try again later.' }))
   }, [accessToken])
 
   const decline = async () => {
     setBusy(true)
     setSubmitError(null)
     try {
-      const { data, error } = await api.POST('/public/quotes/{accessToken}/reject', {
-        params: { path: { accessToken } },
-        body: { comment: declineReason.trim() || null },
-      })
-      if (data && state.kind === 'ready') setState({ kind: 'ready', quote: { ...state.quote, status: 'rejected' } })
-      else setSubmitError(errorText(error, 'Could not decline this quotation'))
-    } catch {
-      setSubmitError('Cannot reach the server. Please try again.')
+      await publicQuoteService.reject(accessToken, declineReason.trim() || null)
+      if (state.kind === 'ready') setState({ kind: 'ready', quote: { ...state.quote, status: 'rejected' } })
+    } catch (e) {
+      setSubmitError(isNetworkError(e) ? 'Cannot reach the server. Please try again.' : errorText(e, 'Could not decline this quotation'))
     } finally {
       setBusy(false)
       setDeclining(false)
@@ -72,14 +72,10 @@ export function PublicQuote({ accessToken }: { accessToken: string }) {
     setBusy(true)
     setSubmitError(null)
     try {
-      const { data, error } = await api.POST('/public/quotes/{accessToken}/accept', {
-        params: { path: { accessToken } },
-        body: { signerName, signatureDataUrl: signature },
-      })
-      if (data) setAcceptedAt(data.signedAt ?? new Date().toISOString())
-      else setSubmitError(errorText(error, 'Could not accept this quotation'))
-    } catch {
-      setSubmitError('Cannot reach the server. Please try again.')
+      const data = await publicQuoteService.accept(accessToken, { signerName, signatureDataUrl: signature })
+      setAcceptedAt(data.signedAt ?? new Date().toISOString())
+    } catch (e) {
+      setSubmitError(isNetworkError(e) ? 'Cannot reach the server. Please try again.' : errorText(e, 'Could not accept this quotation'))
     } finally {
       setBusy(false)
     }

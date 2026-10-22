@@ -1,8 +1,8 @@
 import { Box, Typography } from '@mui/material'
 import { unstable_rethrow } from 'next/navigation'
 import { errorText } from '@/lib/api/types'
-import { redirectIfUnauthorized, serverApi } from '@/lib/api/server'
 import { requireRole } from '@/lib/auth/guard'
+import { dashboardService } from '@/services/dashboardService'
 import { DashboardView } from './DashboardView'
 import type { Summary } from './measures'
 
@@ -25,14 +25,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   let data: Summary | null = null
   let error: string | null = null
   try {
-    const api = await serverApi()
-    const res = await api.GET('/dashboard/summary', { params: { query: { ...(from ? { from } : {}), ...(to ? { to } : {}) } } })
-    redirectIfUnauthorized(res.response)
-    data = res.data ?? null
-    if (!data) error = errorText(res.error, 'Could not load the dashboard')
+    data = await dashboardService.getSummary({ from, to })
   } catch (e) {
-    unstable_rethrow(e) // redirect() works by throwing; let it through.
-    error = 'Cannot reach the API'
+    unstable_rethrow(e) // a 401 redirect() works by throwing; let it through.
+    error = errorText(e, 'Could not load the dashboard')
   }
 
   return (

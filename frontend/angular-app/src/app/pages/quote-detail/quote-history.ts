@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
-import type { Schemas } from '../../core/api.service';
+import type { Schemas } from '../../core/api';
 import { formatDateTime } from '../../core/format';
 
 type QuoteEvent = Schemas['QuoteEvent'];

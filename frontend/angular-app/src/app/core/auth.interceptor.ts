@@ -1,8 +1,8 @@
 import { HttpErrorResponse, type HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { catchError, throwError } from 'rxjs';
-import { API_URL } from './api.service';
-import { AuthService } from './auth.service';
+import { API_URL } from './api';
+import { AuthService } from '../services/auth.service';
 import { getToken } from './token';
 
 /** Adds the bearer token to API calls and logs out when an authenticated call comes back 401. */

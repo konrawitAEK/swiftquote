@@ -17,9 +17,11 @@ import {
   Typography,
 } from '@mui/material'
 import { useEffect, useState } from 'react'
-import { api, errorText, type Schemas } from '../../api/client'
+import { errorText } from '../../api/http'
+import type { Schemas } from '../../api/types'
 import { useAuth } from '../../auth/auth'
 import { ROLE_LABELS } from '../../auth/roles'
+import { adminService } from '../../services/adminService'
 import { CategoryDialog } from './CategoryDialog'
 import { DeleteDialog, type DeleteTarget } from './DeleteDialog'
 import { TeamDialog } from './TeamDialog'
@@ -52,18 +54,15 @@ export function AdminPage() {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([api.GET('/admin/users'), api.GET('/admin/teams'), api.GET('/clients'), api.GET('/categories')])
+    Promise.all([adminService.listUsers(), adminService.listTeams(), adminService.listClients(), adminService.listCategories()])
       .then(([u, t, c, cat]) => {
         if (cancelled) return
-        if (!u.data || !t.data || !c.data || !cat.data) {
-          return setError(errorText(u.error ?? t.error ?? c.error ?? cat.error, 'Could not load'))
-        }
-        setUsers(u.data)
-        setTeams(t.data)
-        setClients(c.data)
-        setCategories(cat.data)
+        setUsers(u)
+        setTeams(t)
+        setClients(c)
+        setCategories(cat)
       })
-      .catch(() => !cancelled && setError('Cannot reach the API'))
+      .catch((err: unknown) => !cancelled && setError(errorText(err, 'Could not load')))
     return () => {
       cancelled = true
     }

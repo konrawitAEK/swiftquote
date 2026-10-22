@@ -1,12 +1,14 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   afterNextRender,
   inject,
   signal,
   viewChild,
   type ElementRef,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -14,7 +16,8 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { Router } from '@angular/router';
 import { Alert } from '../../components/alert';
-import { AuthService } from '../../core/auth.service';
+import { errorText } from '../../core/api';
+import { AuthService } from '../../services/auth.service';
 import { homePath } from '../../core/roles';
 
 // Seeded by db/migrations/V6__seed_dev_roles.sql; all use the password "password".
@@ -122,6 +125,7 @@ const DEV_ACCOUNTS = [
 export class LoginPage {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly accounts = DEV_ACCOUNTS;
   protected readonly email = signal('rm1@swiftquote.dev');
@@ -135,16 +139,22 @@ export class LoginPage {
     afterNextRender(() => this.passwordInput().nativeElement.focus());
   }
 
-  protected async submit(): Promise<void> {
+  protected submit(): void {
     this.busy.set(true);
     this.error.set(null);
-    const err = await this.auth.login(this.email(), this.password());
-    this.busy.set(false);
-    if (err) {
-      this.error.set(err);
-      return;
-    }
-    // Always start on the role's home page, never on the page that was open before.
-    await this.router.navigateByUrl(homePath(this.auth.user()?.role), { replaceUrl: true });
+    this.auth
+      .login(this.email(), this.password())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (user) => {
+          this.busy.set(false);
+          // Always start on the role's home page, never on the page that was open before.
+          void this.router.navigateByUrl(homePath(user.role), { replaceUrl: true });
+        },
+        error: (err: unknown) => {
+          this.busy.set(false);
+          this.error.set(errorText(err, 'Login failed', 'Cannot reach the API. Is the backend running on :8080?'));
+        },
+      });
   }
 }

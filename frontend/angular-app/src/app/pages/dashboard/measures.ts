@@ -1,4 +1,4 @@
-import type { Schemas } from '../../core/api.service';
+import type { Schemas } from '../../core/api';
 
 export type Summary = Schemas['DashboardSummary'];
 export type Measure = Schemas['Measure'];

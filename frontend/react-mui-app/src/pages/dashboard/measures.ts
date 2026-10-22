@@ -1,4 +1,4 @@
-import type { Schemas } from '../../api/client'
+import type { Schemas } from '../../api/types'
 
 export type Summary = Schemas['DashboardSummary']
 export type Measure = Schemas['Measure']

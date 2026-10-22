@@ -1,6 +1,8 @@
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField } from '@mui/material'
 import { useState } from 'react'
-import { api, errorText, type Schemas } from '../../api/client'
+import { errorText } from '../../api/http'
+import type { Schemas } from '../../api/types'
+import { adminService } from '../../services/adminService'
 
 type User = Schemas['AdminUser']
 type Team = Schemas['Team']
@@ -18,13 +20,11 @@ export function TeamDialog(props: { team: Team | null; wos: User[]; onClose: () 
     setError(null)
     try {
       const body = { name, woUserId }
-      const res = team
-        ? await api.PUT('/admin/teams/{id}', { params: { path: { id: team.id } }, body })
-        : await api.POST('/admin/teams', { body })
-      if (res.data) onSaved()
-      else setError(errorText(res.error, 'Could not save team'))
-    } catch {
-      setError('Cannot reach the API')
+      if (team) await adminService.updateTeam(team.id, body)
+      else await adminService.createTeam(body)
+      onSaved()
+    } catch (err) {
+      setError(errorText(err, 'Could not save team'))
     } finally {
       setBusy(false)
     }

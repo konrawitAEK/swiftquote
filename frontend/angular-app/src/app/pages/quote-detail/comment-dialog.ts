@@ -4,8 +4,9 @@ import { MatButtonModule } from '@angular/material/button';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
+import type { Observable } from 'rxjs';
 import { Alert } from '../../components/alert';
-import type { CommentAction } from '../../core/api.service';
+import type { CommentAction } from '../../services/quote-detail.service';
 
 export interface DialogSpec {
   action: CommentAction;
@@ -24,8 +25,8 @@ export const DIALOGS: Record<CommentAction, DialogSpec> = {
 
 export interface CommentDialogData {
   spec: DialogSpec;
-  /** Runs the workflow call; resolves to an error message, or null when done. */
-  run: (comment: string | null) => Promise<string | null>;
+  /** The workflow call, run on subscribe; emits an error message, or null when done. */
+  run: (comment: string | null) => Observable<string | null>;
 }
 
 /** Comment prompt for submit / approve / return / decline. Closes only when the call succeeds. */
@@ -79,14 +80,15 @@ export class CommentDialog {
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
 
-  protected async confirm(): Promise<void> {
+  protected confirm(): void {
     this.busy.set(true);
     this.ref.disableClose = true;
     this.error.set(null);
-    const err = await this.data.run(this.comment().trim() || null);
-    this.busy.set(false);
-    this.ref.disableClose = false;
-    if (err) this.error.set(err);
-    else this.ref.close();
+    this.data.run(this.comment().trim() || null).subscribe((err) => {
+      this.busy.set(false);
+      this.ref.disableClose = false;
+      if (err) this.error.set(err);
+      else this.ref.close();
+    });
   }
 }

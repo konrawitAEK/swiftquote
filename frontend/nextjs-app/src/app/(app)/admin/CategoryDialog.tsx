@@ -2,9 +2,8 @@
 
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Stack, Switch, TextField } from '@mui/material'
 import { useState } from 'react'
-import { api, errorText, type Schemas } from '@/lib/api/client'
-
-type Category = Schemas['ProductCategory']
+import { errorText, type ProductCategory as Category } from '@/lib/api/types'
+import { adminService } from '@/services/adminService'
 
 /** Add a product category, or rename / retire one. Retired categories stay on existing quotes. */
 export function CategoryDialog(props: { category: Category | null; onClose: () => void; onSaved: () => void }) {
@@ -18,13 +17,10 @@ export function CategoryDialog(props: { category: Category | null; onClose: () =
     setBusy(true)
     setError(null)
     try {
-      const res = category
-        ? await api.PUT('/admin/categories/{id}', { params: { path: { id: category.id } }, body: { name, active } })
-        : await api.POST('/admin/categories', { body: { name } })
-      if (res.data) onSaved()
-      else setError(errorText(res.error, 'Could not save category'))
-    } catch {
-      setError('Cannot reach the API')
+      await (category ? adminService.updateCategory(category.id, { name, active }) : adminService.createCategory({ name }))
+      onSaved()
+    } catch (e) {
+      setError(errorText(e, 'Could not save category'))
     } finally {
       setBusy(false)
     }

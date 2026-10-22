@@ -5,8 +5,10 @@ import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/materia
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
+import { finalize } from 'rxjs';
 import { Alert } from '../../components/alert';
-import { ApiService, errorText, type Schemas } from '../../core/api.service';
+import { errorText, type Schemas } from '../../core/api';
+import { AdminService } from '../../services/admin.service';
 
 type User = Schemas['AdminUser'];
 type Team = Schemas['Team'];
@@ -60,7 +62,7 @@ export interface TeamDialogData {
   `,
 })
 export class TeamDialog {
-  private readonly api = inject(ApiService);
+  private readonly adminApi = inject(AdminService);
   protected readonly ref = inject<MatDialogRef<TeamDialog, boolean>>(MatDialogRef);
   protected readonly data = inject<TeamDialogData>(MAT_DIALOG_DATA);
   protected readonly team = this.data.team;
@@ -70,20 +72,22 @@ export class TeamDialog {
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
 
-  protected async save(): Promise<void> {
+  protected save(): void {
     this.busy.set(true);
     this.ref.disableClose = true;
     this.error.set(null);
     const body = { name: this.name(), woUserId: this.woUserId() };
-    try {
-      if (this.team) await this.api.updateTeam(this.team.id, body);
-      else await this.api.createTeam(body);
-      this.ref.close(true);
-    } catch (err) {
-      this.error.set(errorText(err, 'Could not save team'));
-    } finally {
-      this.busy.set(false);
-      this.ref.disableClose = false;
-    }
+    const save = this.team ? this.adminApi.updateTeam(this.team.id, body) : this.adminApi.createTeam(body);
+    save
+      .pipe(
+        finalize(() => {
+          this.busy.set(false);
+          this.ref.disableClose = false;
+        }),
+      )
+      .subscribe({
+        next: () => this.ref.close(true),
+        error: (err: unknown) => this.error.set(errorText(err, 'Could not save team')),
+      });
   }
 }

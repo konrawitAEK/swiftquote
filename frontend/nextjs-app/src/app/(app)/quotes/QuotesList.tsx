@@ -22,9 +22,10 @@ import NextLink from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { StatusChip } from '@/components/StatusChip'
-import { api, errorText, type QuoteStatus, type Role, type Schemas } from '@/lib/api/client'
+import { errorText, isNetworkError, type QuoteStatus, type QuoteSummary, type Role } from '@/lib/api/types'
 import { STATUS_LABELS } from '@/lib/auth/roles'
 import { formatMoney } from '@/lib/pricing/pricing'
+import { quotesService } from '@/services/quotesService'
 
 const STATUSES: QuoteStatus[] = ['draft', 'pending_approval', 'approved', 'sent', 'viewed', 'accepted', 'rejected']
 const CUSTOMER_STATUSES: QuoteStatus[] = ['sent', 'viewed', 'accepted', 'rejected']
@@ -40,20 +41,24 @@ const TITLES: Record<Role, string> = {
 export function QuotesList({ role }: { role: Role }) {
   const showCreator = role === 'wo' || role === 'woc'
   const [status, setStatus] = useState<QuoteStatus | ''>('')
-  const [quotes, setQuotes] = useState<Schemas['QuoteSummary'][] | null>(null)
+  const [quotes, setQuotes] = useState<QuoteSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
 
   useEffect(() => {
     let cancelled = false
-    api
-      .GET('/quotes', { params: { query: status ? { status } : {} } })
-      .then(({ data, error }) => {
+    quotesService
+      .list(status || undefined)
+      .then((data) => {
         if (cancelled) return
-        setQuotes(data ?? [])
-        setError(data ? null : errorText(error, 'Could not load quotes'))
+        setQuotes(data)
+        setError(null)
       })
-      .catch(() => !cancelled && setError('Cannot reach the API'))
+      .catch((e: unknown) => {
+        if (cancelled) return
+        if (!isNetworkError(e)) setQuotes([])
+        setError(errorText(e, 'Could not load quotes'))
+      })
     return () => {
       cancelled = true
     }

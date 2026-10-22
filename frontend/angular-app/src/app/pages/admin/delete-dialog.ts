@@ -1,11 +1,13 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
+import { finalize } from 'rxjs';
 import { Alert } from '../../components/alert';
-import { ApiService, errorText } from '../../core/api.service';
+import { errorText } from '../../core/api';
+import { AdminService, type DeleteKind } from '../../services/admin.service';
 
 export interface DeleteTarget {
-  kind: 'user' | 'team' | 'category';
+  kind: DeleteKind;
   id: string;
   name: string;
 }
@@ -49,7 +51,7 @@ const EXPLANATIONS: Record<DeleteTarget['kind'], string> = {
   `,
 })
 export class DeleteDialog {
-  private readonly api = inject(ApiService);
+  private readonly adminApi = inject(AdminService);
   protected readonly ref = inject<MatDialogRef<DeleteDialog, boolean>>(MatDialogRef);
   protected readonly target = inject<DeleteTarget>(MAT_DIALOG_DATA);
   protected readonly explanation = EXPLANATIONS[this.target.kind];
@@ -57,25 +59,21 @@ export class DeleteDialog {
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
 
-  private remove(): Promise<void> {
-    const { kind, id } = this.target;
-    if (kind === 'user') return this.api.deleteUser(id);
-    if (kind === 'team') return this.api.deleteTeam(id);
-    return this.api.deleteCategory(id);
-  }
-
-  protected async confirm(): Promise<void> {
+  protected confirm(): void {
     this.busy.set(true);
     this.ref.disableClose = true;
     this.error.set(null);
-    try {
-      await this.remove();
-      this.ref.close(true);
-    } catch (err) {
-      this.error.set(errorText(err, `Could not delete ${this.target.name}`));
-    } finally {
-      this.busy.set(false);
-      this.ref.disableClose = false;
-    }
+    this.adminApi
+      .delete(this.target.kind, this.target.id)
+      .pipe(
+        finalize(() => {
+          this.busy.set(false);
+          this.ref.disableClose = false;
+        }),
+      )
+      .subscribe({
+        next: () => this.ref.close(true),
+        error: (err: unknown) => this.error.set(errorText(err, `Could not delete ${this.target.name}`)),
+      });
   }
 }

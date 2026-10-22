@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { api, AUTH_EXPIRED_EVENT, errorText, getToken, setToken } from '../api/client'
+import { AUTH_EXPIRED_EVENT, errorText, getToken } from '../api/http'
 import { AuthContext, type AuthUser } from './auth'
+import { authService } from '../services/authService'
 import { ROLE_LABELS } from './roles'
 
 const USER_KEY = 'swiftquote.user'
@@ -31,7 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setTokenState] = useState(() => (user ? getToken() : null))
 
   const logout = useCallback(() => {
-    setToken(null)
+    authService.logout()
     saveUser(null)
     setTokenState(null)
     setUser(null)
@@ -44,15 +45,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     try {
-      const { data, error } = await api.POST('/auth/login', { body: { email, password } })
-      if (!data) return errorText(error, 'Login failed')
-      setToken(data.accessToken)
+      const data = await authService.login(email, password)
       saveUser(data.user)
       setTokenState(data.accessToken)
       setUser(data.user)
       return null
-    } catch {
-      return 'Cannot reach the API. Is the backend running on :8080?'
+    } catch (err) {
+      return errorText(err, 'Login failed', 'Cannot reach the API. Is the backend running on :8080?')
     }
   }, [])
 

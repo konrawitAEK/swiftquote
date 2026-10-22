@@ -1,5 +1,5 @@
 import { Chip, type ChipProps } from '@mui/material'
-import type { QuoteStatus } from '../api/client'
+import type { QuoteStatus } from '../api/types'
 import { STATUS_LABELS } from '../auth/roles'
 
 const colors: Record<QuoteStatus, ChipProps['color']> = {
