@@ -73,6 +73,29 @@ public class CatalogService {
 		return this.repo.get(a.tenantId(), id).orElseThrow();
 	}
 
+	/** Removes a category no quote line uses; used ones are retired (active false) instead. */
+	public void delete(Actor a, UUID id) {
+		if (!Roles.ADMIN.equals(a.role())) {
+			throw ApiException.roleForbidden();
+		}
+		if (this.repo.get(a.tenantId(), id).isEmpty()) {
+			throw ApiException.notFound("category not found");
+		}
+		if (this.repo.isUsed(id)) {
+			throw inUse();
+		}
+		try {
+			this.repo.delete(a.tenantId(), id);
+		}
+		catch (CatalogRepository.InUseException ex) {
+			throw inUse();
+		}
+	}
+
+	private static ApiException inUse() {
+		return ApiException.conflict("category is used on quotes; retire it instead");
+	}
+
 	private static ApiException duplicate(String name) {
 		return ApiException.conflict("category %s already exists".formatted(GoText.quote(name)));
 	}

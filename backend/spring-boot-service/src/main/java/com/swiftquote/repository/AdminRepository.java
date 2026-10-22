@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -24,6 +25,15 @@ public class AdminRepository {
 	public static final class DuplicateException extends RuntimeException {
 
 		DuplicateException(Throwable cause) {
+			super(cause);
+		}
+
+	}
+
+	/** A delete hit a foreign key: the row gained a reference after the service checked (a race). */
+	public static final class InUseException extends RuntimeException {
+
+		InUseException(Throwable cause) {
 			super(cause);
 		}
 
@@ -213,6 +223,70 @@ public class AdminRepository {
 		catch (DuplicateKeyException ex) {
 			throw new DuplicateException(ex);
 		}
+	}
+
+	/** Whether the user created a quote or acted on one, in any organization. */
+	public boolean hasQuoteHistory(UUID userId) {
+		return this.jdbc.sql("""
+				SELECT EXISTS (SELECT 1 FROM quotes WHERE created_by = :id)
+					OR EXISTS (SELECT 1 FROM quote_events WHERE actor_user_id = :id)""")
+			.param("id", userId)
+			.query(Boolean.class)
+			.single();
+	}
+
+	/** Whether any membership, active or not, points at the team. */
+	public boolean teamHasMembers(UUID teamId) {
+		return this.jdbc.sql("SELECT EXISTS (SELECT 1 FROM organization_members WHERE team_id = :id)")
+			.param("id", teamId)
+			.query(Boolean.class)
+			.single();
+	}
+
+	/** Removes the user from the organization, and the account itself once it belongs to no organization. */
+	public void deleteUser(UUID orgId, UUID id) {
+		try {
+			this.tx.executeWithoutResult((status) -> {
+				this.jdbc.sql("DELETE FROM organization_members WHERE organization_id = :org AND user_id = :id")
+					.param("org", orgId)
+					.param("id", id)
+					.update();
+				this.jdbc.sql("""
+						DELETE FROM users WHERE id = :id
+							AND NOT EXISTS (SELECT 1 FROM organization_members WHERE user_id = :id)""")
+					.param("id", id)
+					.update();
+			});
+		}
+		catch (DataAccessException ex) {
+			throw inUse(ex);
+		}
+	}
+
+	/**
+	 * Deletes an empty team. Members' team_id is ON DELETE SET NULL, so no foreign key would stop this; emptiness is
+	 * re-checked in the same statement and a member added meanwhile reports {@link InUseException}.
+	 */
+	public void deleteTeam(UUID orgId, UUID id) {
+		int deleted;
+		try {
+			deleted = this.jdbc.sql("""
+					DELETE FROM teams t WHERE t.organization_id = :org AND t.id = :id
+						AND NOT EXISTS (SELECT 1 FROM organization_members m WHERE m.team_id = t.id)""")
+				.param("org", orgId)
+				.param("id", id)
+				.update();
+		}
+		catch (DataAccessException ex) {
+			throw inUse(ex);
+		}
+		if (deleted == 0) {
+			throw new InUseException(null);
+		}
+	}
+
+	private static RuntimeException inUse(DataAccessException ex) {
+		return Rows.isForeignKeyViolation(ex) ? new InUseException(ex) : ex;
 	}
 
 }

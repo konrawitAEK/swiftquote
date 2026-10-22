@@ -103,6 +103,33 @@ public class AdminService {
 		return this.repo.getUser(a.tenantId(), id).orElseThrow();
 	}
 
+	/** Permanently removes an account nothing refers to; accounts with quote history are deactivated instead. */
+	public void deleteUser(Actor a, UUID id) {
+		guard(a);
+		if (this.repo.getUser(a.tenantId(), id).isEmpty()) {
+			throw ApiException.notFound("user not found");
+		}
+		if (id.equals(a.userId())) {
+			throw ApiException.invalid("you cannot delete yourself");
+		}
+		if (this.repo.leadsTeam(a.tenantId(), id)) {
+			throw ApiException.conflict("user leads a team; assign another WO first");
+		}
+		if (this.repo.hasQuoteHistory(id)) {
+			throw userHasHistory();
+		}
+		try {
+			this.repo.deleteUser(a.tenantId(), id);
+		}
+		catch (AdminRepository.InUseException ex) {
+			throw userHasHistory();
+		}
+	}
+
+	private static ApiException userHasHistory() {
+		return ApiException.conflict("user has quote history; deactivate instead");
+	}
+
 	/** Validates name, role and placement (team for RMs, client for customers), adding to problems. */
 	private void checkUser(Actor a, UserInput in, ApiException.Problems problems) {
 		if (in.name().isEmpty()) {
@@ -164,6 +191,27 @@ public class AdminService {
 			throw ApiException.conflict("team %s already exists".formatted(GoText.quote(trimmed)));
 		}
 		return this.repo.getTeam(a.tenantId(), id).orElseThrow();
+	}
+
+	/** Removes an empty team; its members must be moved to another team first. */
+	public void deleteTeam(Actor a, UUID id) {
+		guard(a);
+		if (this.repo.getTeam(a.tenantId(), id).isEmpty()) {
+			throw ApiException.notFound("team not found");
+		}
+		if (this.repo.teamHasMembers(id)) {
+			throw teamHasMembers();
+		}
+		try {
+			this.repo.deleteTeam(a.tenantId(), id);
+		}
+		catch (AdminRepository.InUseException ex) {
+			throw teamHasMembers();
+		}
+	}
+
+	private static ApiException teamHasMembers() {
+		return ApiException.conflict("team has members; move them to another team first");
 	}
 
 	private String checkTeam(Actor a, String name, UUID woUserId) {

@@ -111,6 +111,13 @@ class ApiController {
 		return CategoryView.of(this.catalog.update(actor, pathId(id), req.string("name"), req.bool("active")));
 	}
 
+	/** Deletes are POSTs on a /delete sub-resource; the body is never read, so even malformed JSON is accepted. */
+	@PostMapping("/admin/categories/{id}/delete")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	void deleteCategory(Actor actor, @PathVariable String id) {
+		this.catalog.delete(actor, pathId(id));
+	}
+
 	@GetMapping("/quotes")
 	List<QuoteSummary> listQuotes(Actor actor, HttpServletRequest request) {
 		if (Roles.ADMIN.equals(actor.role())) {
@@ -248,6 +255,12 @@ class ApiController {
 		return AdminUserView.of(this.admin.updateUser(actor, pathId(id), in));
 	}
 
+	@PostMapping("/admin/users/{id}/delete")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	void deleteUser(Actor actor, @PathVariable String id) {
+		this.admin.deleteUser(actor, pathId(id));
+	}
+
 	@GetMapping("/admin/teams")
 	List<TeamView> listTeams(Actor actor) {
 		return this.admin.listTeams(actor).stream().map(TeamView::of).toList();
@@ -264,6 +277,12 @@ class ApiController {
 	TeamView updateTeam(Actor actor, @PathVariable String id, @RequestBody(required = false) byte[] body) {
 		JsonBody req = JsonBody.of(body);
 		return TeamView.of(this.admin.updateTeam(actor, pathId(id), req.string("name"), req.uuid("woUserId")));
+	}
+
+	@PostMapping("/admin/teams/{id}/delete")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	void deleteTeam(Actor actor, @PathVariable String id) {
+		this.admin.deleteTeam(actor, pathId(id));
 	}
 
 	@GetMapping("/public/quotes/{accessToken}")

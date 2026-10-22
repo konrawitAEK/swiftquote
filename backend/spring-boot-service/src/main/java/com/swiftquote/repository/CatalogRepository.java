@@ -6,6 +6,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -20,6 +21,15 @@ public class CatalogRepository {
 	public static final class DuplicateException extends RuntimeException {
 
 		DuplicateException(Throwable cause) {
+			super(cause);
+		}
+
+	}
+
+	/** A delete hit a foreign key: a quote line started using the category after the service checked. */
+	public static final class InUseException extends RuntimeException {
+
+		InUseException(Throwable cause) {
 			super(cause);
 		}
 
@@ -80,6 +90,26 @@ public class CatalogRepository {
 			.param("org", orgId)
 			.query((rs, n) -> Rows.uuid(rs, 1))
 			.list());
+	}
+
+	/** Whether any quote line uses the category. */
+	public boolean isUsed(UUID id) {
+		return this.jdbc.sql("SELECT EXISTS (SELECT 1 FROM quote_items WHERE category_id = :id)")
+			.param("id", id)
+			.query(Boolean.class)
+			.single();
+	}
+
+	public void delete(UUID orgId, UUID id) {
+		try {
+			this.jdbc.sql("DELETE FROM product_categories WHERE organization_id = :org AND id = :id")
+				.param("org", orgId)
+				.param("id", id)
+				.update();
+		}
+		catch (DataAccessException ex) {
+			throw Rows.isForeignKeyViolation(ex) ? new InUseException(ex) : ex;
+		}
 	}
 
 }

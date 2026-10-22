@@ -26,4 +26,14 @@ final class Rows {
 		return (t != null) ? t.atOffset(ZoneOffset.UTC) : null;
 	}
 
+	/** True when a statement failed on a foreign key (SQLSTATE 23503), whatever Spring translated it to. */
+	static boolean isForeignKeyViolation(Throwable ex) {
+		for (Throwable t = ex; t != null; t = (t.getCause() != t) ? t.getCause() : null) {
+			if (t instanceof SQLException sql && "23503".equals(sql.getSQLState())) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 }

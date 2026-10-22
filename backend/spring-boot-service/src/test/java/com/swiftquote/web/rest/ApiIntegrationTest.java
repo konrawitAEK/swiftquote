@@ -582,6 +582,96 @@ class ApiIntegrationTest {
 	}
 
 	@Test
+	void adminDeletes() {
+		String adm = as(ADMIN);
+
+		// Users: only accounts nothing refers to; the rest are deactivated instead.
+		String temp = (String) expect(201, null, "POST", "/api/v1/admin/users", adm, obj("email", "temp@swiftquote.dev",
+				"name", "Temp", "password", "password", "role", "rm", "teamId", TEAM_ALPHA))
+			.map()
+			.get("id");
+		String tempDelete = "/api/v1/admin/users/" + temp + "/delete";
+		expect(401, "UNAUTHORIZED", "POST", tempDelete, null, null);
+		Res forbidden = expect(403, "FORBIDDEN", "POST", tempDelete, as(WOC), null);
+		assertThat(forbidden.map()).containsEntry("message", "forbidden: your role cannot perform this action");
+		Res done = expect(204, null, "POST", tempDelete, adm, null);
+		assertThat(done.raw()).isEmpty();
+		assertThat(this.jdbc.sql("SELECT count(*) FROM users WHERE email = 'temp@swiftquote.dev'")
+			.query(Integer.class)
+			.single()).isZero();
+		Res gone = expect(404, "NOT_FOUND", "POST", tempDelete, adm, null);
+		assertThat(gone.map()).containsEntry("message", "not found: user not found");
+		expect(404, "NOT_FOUND", "POST", "/api/v1/admin/users/" + UNKNOWN_ID + "/delete", adm, null);
+		expect(404, "NOT_FOUND", "POST", "/api/v1/admin/users/nope/delete", adm, null);
+		expect(401, "UNAUTHORIZED", "POST", "/api/v1/auth/login", null,
+				obj("email", "temp@swiftquote.dev", "password", "password"));
+
+		Res self = expect(400, "VALIDATION_ERROR", "POST", "/api/v1/admin/users/" + ADMIN_USER + "/delete", adm, null);
+		assertThat(self.map()).containsEntry("message", "request validation failed")
+			.containsEntry("details", List.of("you cannot delete yourself"));
+		Res leads = expect(409, "CONFLICT", "POST", "/api/v1/admin/users/" + WO_USER + "/delete", adm, null);
+		assertThat(leads.map()).containsEntry("message", "conflict: user leads a team; assign another WO first");
+		create(RM1, "Q-DEL");
+		Res history = expect(409, "CONFLICT", "POST", "/api/v1/admin/users/" + RM1_USER + "/delete", adm, null);
+		assertThat(history.map()).containsEntry("message", "conflict: user has quote history; deactivate instead");
+
+		// A user who also belongs to another organization only loses this membership.
+		String shared = (String) expect(201, null, "POST", "/api/v1/admin/users", adm,
+				obj("email", "shared@swiftquote.dev", "name", "Shared", "password", "password", "role", "woc"))
+			.map()
+			.get("id");
+		this.jdbc.sql("""
+				WITH o AS (INSERT INTO organizations (name, slug) VALUES ('Other', 'other-delete') RETURNING id)
+				INSERT INTO organization_members (organization_id, user_id, role)
+				SELECT o.id, CAST(:u AS uuid), 'woc' FROM o""").param("u", shared).update();
+		expect(204, null, "POST", "/api/v1/admin/users/" + shared + "/delete", adm, null);
+		assertThat(this.jdbc.sql("SELECT count(*) FROM users WHERE id = CAST(:u AS uuid)")
+			.param("u", shared)
+			.query(Integer.class)
+			.single()).isOne();
+		expect(404, "NOT_FOUND", "POST", "/api/v1/admin/users/" + shared + "/delete", adm, null);
+
+		// Teams: only empty ones, counting inactive members too.
+		Res members = expect(409, "CONFLICT", "POST", "/api/v1/admin/teams/" + TEAM_ALPHA + "/delete", adm, null);
+		assertThat(members.map()).containsEntry("message",
+				"conflict: team has members; move them to another team first");
+		String team = (String) expect(201, null, "POST", "/api/v1/admin/teams", adm,
+				obj("name", "Empty", "woUserId", WO_USER))
+			.map()
+			.get("id");
+		String parked = (String) expect(201, null, "POST", "/api/v1/admin/users", adm, obj("email",
+				"parked@swiftquote.dev", "name", "Parked", "password", "password", "role", "rm", "teamId", team))
+			.map()
+			.get("id");
+		expect(200, null, "PUT", "/api/v1/admin/users/" + parked, adm,
+				obj("name", "Parked", "role", "rm", "active", false, "teamId", team));
+		expect(409, "CONFLICT", "POST", "/api/v1/admin/teams/" + team + "/delete", adm, null);
+		expect(403, "FORBIDDEN", "POST", "/api/v1/admin/teams/" + team + "/delete", as(WO), null);
+		expect(200, null, "PUT", "/api/v1/admin/users/" + parked, adm,
+				obj("name", "Parked", "role", "rm", "active", false, "teamId", TEAM_ALPHA));
+		expect(204, null, "POST", "/api/v1/admin/teams/" + team + "/delete", adm, obj());
+		Res noTeam = expect(404, "NOT_FOUND", "POST", "/api/v1/admin/teams/" + team + "/delete", adm, null);
+		assertThat(noTeam.map()).containsEntry("message", "not found: team not found");
+		expect(404, "NOT_FOUND", "POST", "/api/v1/admin/teams/nope/delete", adm, null);
+		expect(404, "NOT_FOUND", "POST", "/api/v1/admin/teams/" + UNKNOWN_ID + "/delete", adm, null);
+
+		// Categories: only unused ones (Q-DEL uses Services and Software); the body is ignored, even when not JSON.
+		Res used = expect(409, "CONFLICT", "POST", "/api/v1/admin/categories/" + CAT_SOFTWARE + "/delete", adm, null);
+		assertThat(used.map()).containsEntry("message", "conflict: category is used on quotes; retire it instead");
+		String cat = (String) expect(201, null, "POST", "/api/v1/admin/categories", adm, obj("name", "Unused"))
+			.map()
+			.get("id");
+		expect(403, "FORBIDDEN", "POST", "/api/v1/admin/categories/" + cat + "/delete", as(RM1), null);
+		Res malformed = raw("POST", "/api/v1/admin/categories/" + cat + "/delete", adm, "{nope");
+		assertThat(malformed.status()).as(malformed.raw()).isEqualTo(204);
+		Res noCat = expect(404, "NOT_FOUND", "POST", "/api/v1/admin/categories/" + cat + "/delete", adm, null);
+		assertThat(noCat.map()).containsEntry("message", "not found: category not found");
+		expect(404, "NOT_FOUND", "POST", "/api/v1/admin/categories/nope/delete", adm, null);
+		expect(404, "NOT_FOUND", "POST", "/api/v1/admin/categories/" + UNKNOWN_ID + "/delete", adm, null);
+		assertThat(expect(200, null, "GET", "/api/v1/categories", adm, null).list()).hasSize(3);
+	}
+
+	@Test
 	void errorResponses() {
 		String rm = as(RM1);
 		create(RM1, "Q-DUP");
