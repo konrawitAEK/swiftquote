@@ -18,6 +18,7 @@ import { goQuote } from './gojson.js'
 import { Money } from './pricing.js'
 import {
   DuplicateError,
+  InUseError,
   type AdminUser,
   type CategoryRow,
   type Measure,
@@ -48,6 +49,19 @@ async function onDuplicate<T>(fn: () => Promise<T>, message: string): Promise<T>
     throw err instanceof DuplicateError ? conflict(message) : err
   }
 }
+
+/** Runs a delete; a foreign-key violation (a reference added after the checks) is the given conflict. */
+async function onInUse(fn: () => Promise<void>, message: string): Promise<void> {
+  try {
+    await fn()
+  } catch (err) {
+    throw err instanceof InUseError ? conflict(message) : err
+  }
+}
+
+const USER_HAS_HISTORY = 'user has quote history; deactivate instead'
+const TEAM_HAS_MEMBERS = 'team has members; move them to another team first'
+const CATEGORY_IN_USE = 'category is used on quotes; retire it instead'
 
 export class AdminService {
   constructor(private readonly repo: Repository) {}
@@ -90,6 +104,16 @@ export class AdminService {
     return (await this.repo.getUser(a.tenantId, id))!
   }
 
+  /** Removes the user from the organization, and the account once it has no other membership. */
+  async deleteUser(a: Actor, id: string): Promise<void> {
+    guard(a)
+    if (!(await this.repo.getUser(a.tenantId, id))) throw notFound('user not found')
+    if (id === a.userId) throw invalid('you cannot delete yourself')
+    if (await this.repo.leadsTeam(a.tenantId, id)) throw conflict('user leads a team; assign another WO first')
+    if (await this.repo.hasQuoteHistory(id)) throw conflict(USER_HAS_HISTORY)
+    await onInUse(() => this.repo.deleteUser(a.tenantId, id), USER_HAS_HISTORY)
+  }
+
   /** Validates name, role and placement (team for RMs, client for customers), after the caller's own checks. */
   private async checkUser(a: Actor, in_: UserInput, p: Problems): Promise<void> {
     if (in_.name === '') p.add('name is required')
@@ -123,6 +147,13 @@ export class AdminService {
     const n = await this.checkTeam(a, name, woUserId)
     await onDuplicate(() => this.repo.updateTeam(a.tenantId, id, n, woUserId!), `team ${goQuote(n)} already exists`)
     return (await this.repo.getTeam(a.tenantId, id))!
+  }
+
+  async deleteTeam(a: Actor, id: string): Promise<void> {
+    guard(a)
+    if (!(await this.repo.getTeam(a.tenantId, id))) throw notFound('team not found')
+    if (await this.repo.teamHasMembers(a.tenantId, id)) throw conflict(TEAM_HAS_MEMBERS)
+    await onInUse(() => this.repo.deleteTeam(a.tenantId, id), TEAM_HAS_MEMBERS)
   }
 
   private async checkTeam(a: Actor, name: string, woUserId: string | null): Promise<string> {
@@ -165,6 +196,13 @@ export class CatalogService {
     p.check()
     await onDuplicate(() => this.repo.updateCategory(a.tenantId, id, n, active!), `category ${goQuote(n)} already exists`)
     return (await this.repo.getCategory(a.tenantId, id))!
+  }
+
+  async delete(a: Actor, id: string): Promise<void> {
+    guard(a)
+    if (!(await this.repo.getCategory(a.tenantId, id))) throw notFound('category not found')
+    if (await this.repo.categoryInUse(a.tenantId, id)) throw conflict(CATEGORY_IN_USE)
+    await onInUse(() => this.repo.deleteCategory(a.tenantId, id), CATEGORY_IN_USE)
   }
 }
 

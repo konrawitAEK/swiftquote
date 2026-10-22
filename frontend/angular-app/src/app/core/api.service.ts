@@ -93,6 +93,9 @@ export class ApiService {
   updateUser(userId: string, body: Schemas['UpdateUserRequest']) {
     return this.put<Schemas['AdminUser']>(`/admin/users/${id(userId)}`, body);
   }
+  deleteUser(userId: string) {
+    return this.post<void>(`/admin/users/${id(userId)}/delete`);
+  }
   listTeams() {
     return this.get<Schemas['Team'][]>('/admin/teams');
   }
@@ -102,11 +105,17 @@ export class ApiService {
   updateTeam(teamId: string, body: Schemas['TeamRequest']) {
     return this.put<Schemas['Team']>(`/admin/teams/${id(teamId)}`, body);
   }
+  deleteTeam(teamId: string) {
+    return this.post<void>(`/admin/teams/${id(teamId)}/delete`);
+  }
   createCategory(body: Schemas['CreateCategoryRequest']) {
     return this.post<Schemas['ProductCategory']>('/admin/categories', body);
   }
   updateCategory(categoryId: string, body: Schemas['UpdateCategoryRequest']) {
     return this.put<Schemas['ProductCategory']>(`/admin/categories/${id(categoryId)}`, body);
+  }
+  deleteCategory(categoryId: string) {
+    return this.post<void>(`/admin/categories/${id(categoryId)}/delete`);
   }
 
   // Client portal (no login)

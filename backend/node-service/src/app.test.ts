@@ -350,6 +350,67 @@ describe.skipIf(!DB_URL)('API (Postgres)', () => {
     expect(teams[1].members.map((m: Json) => m.name)).toEqual(['New RM', 'Ploy Siri'])
   })
 
+  it('deletes users, teams and categories', async () => {
+    const adm = await as(ADMIN)
+    const rm = await as(RM1)
+    const del = (kind: string, id: string, token?: string, raw?: string) =>
+      call('POST', `/api/v1/admin/${kind}/${id}/delete`, token, undefined, raw)
+    const expectError = async (res: Awaited<ReturnType<typeof del>>, status: number, code: string, message: string) => {
+      expect([res.status, res.json.code, res.json.message], res.raw).toEqual([status, code, message])
+    }
+
+    for (const kind of ['users', 'teams', 'categories']) {
+      await expectError(await del(kind, UNKNOWN), 401, 'UNAUTHORIZED', 'unauthorized: missing bearer token')
+      await expectError(await del(kind, UNKNOWN, rm), 403, 'FORBIDDEN', 'forbidden: your role cannot perform this action')
+      const noun = { users: 'user', teams: 'team', categories: 'category' }[kind]
+      await expectError(await del(kind, UNKNOWN, adm), 404, 'NOT_FOUND', `not found: ${noun} not found`)
+      await expectError(await del(kind, 'nope', adm), 404, 'NOT_FOUND', `not found: ${noun} not found`)
+      const wrong = await call('GET', `/api/v1/admin/${kind}/${UNKNOWN}/delete`, adm)
+      expect([wrong.status, wrong.headers.allow, wrong.json.message]).toEqual([405, 'POST', 'Method Not Allowed'])
+    }
+
+    const self = await del('users', ADMIN_USER, adm)
+    expect([self.status, self.json.message, self.json.details]).toEqual(
+      [400, 'request validation failed', ['you cannot delete yourself']])
+    await expectError(await del('users', WO_USER, adm), 409, 'CONFLICT', 'conflict: user leads a team; assign another WO first')
+    await expectError(await del('teams', TEAM_ALPHA, adm), 409, 'CONFLICT',
+      'conflict: team has members; move them to another team first')
+
+    // A quote gives rm1 history and puts Services and Software on a quote line.
+    await create(RM1, 'Q-DEL')
+    await expectError(await del('users', RM1_USER, adm), 409, 'CONFLICT', 'conflict: user has quote history; deactivate instead')
+    await expectError(await del('categories', CAT_SERVICES, adm), 409, 'CONFLICT',
+      'conflict: category is used on quotes; retire it instead')
+
+    // Success with no body (but a JSON Content-Type), {} and malformed JSON: the body is never read.
+    const u = await expectStatus(201, '', 'POST', '/api/v1/admin/users', adm,
+      { email: 'gone@swiftquote.dev', name: 'Gone', password: 'password', role: 'rm' })
+    let res = await del('users', u.id, adm)
+    expect([res.status, res.raw]).toEqual([204, ''])
+    expect((await pool.query('SELECT 1 FROM users WHERE id = $1', [u.id])).rowCount).toBe(0)
+    expect((await call('GET', '/api/v1/admin/users', adm)).json).toHaveLength(9)
+    await expectError(await del('users', u.id, adm), 404, 'NOT_FOUND', 'not found: user not found')
+
+    // A team with only an inactive member still has members.
+    const team = await expectStatus(201, '', 'POST', '/api/v1/admin/teams', adm,
+      { name: 'Gamma', woUserId: '00000000-0000-4000-8000-000000000014' })
+    const member = await expectStatus(201, '', 'POST', '/api/v1/admin/users', adm,
+      { email: 'idle@swiftquote.dev', name: 'Idle', password: 'password', role: 'rm', teamId: team.id })
+    await expectStatus(200, '', 'PUT', `/api/v1/admin/users/${member.id}`, adm,
+      { name: 'Idle', role: 'rm', active: false, teamId: team.id })
+    await expectError(await del('teams', team.id, adm), 409, 'CONFLICT',
+      'conflict: team has members; move them to another team first')
+    await expectStatus(200, '', 'PUT', `/api/v1/admin/users/${member.id}`, adm, { name: 'Idle', role: 'rm', active: false })
+    res = await del('teams', team.id, adm, '{}')
+    expect([res.status, res.raw]).toEqual([204, ''])
+    expect((await call('GET', '/api/v1/admin/teams', adm)).json).toHaveLength(2)
+
+    const c = await expectStatus(201, '', 'POST', '/api/v1/admin/categories', adm, { name: 'Disposable' })
+    res = await del('categories', c.id, adm, '{not json')
+    expect([res.status, res.raw]).toEqual([204, ''])
+    expect((await call('GET', '/api/v1/categories', adm)).json).toHaveLength(3)
+  })
+
   it('summarises the dashboard', async () => {
     const customer = await as(ACME_BUYER)
     // Each quote is Consulting (Services) 192.60 + Setup fee (Software) 1.61 = 194.21 incl. VAT.

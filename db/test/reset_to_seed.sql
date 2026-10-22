@@ -1,5 +1,6 @@
 -- Test helper shared by the Go, Spring and Node suites: restore a migrated database to exactly the dev seed
--- (V2, V3, V6, V8) after tests have created quotes, users and teams or edited the seeded ones.
+-- (V2, V3, V6, V8) after tests have created quotes, users and teams, or edited or deleted the seeded ones.
+-- Seed rows are upserted, so a test may delete them (POST /admin/.../delete).
 DELETE FROM quote_events;
 DELETE FROM quotes;
 DELETE FROM organization_members WHERE user_id NOT IN (
@@ -21,29 +22,29 @@ DELETE FROM users WHERE id NOT IN (
 DELETE FROM clients WHERE id NOT IN ('00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000004');
 DELETE FROM organizations WHERE id <> '00000000-0000-4000-8000-000000000001';
 
-UPDATE users u SET full_name = v.name,
-    password_hash = '$2a$10$uYfAyrxO7at0lfUCLdJgLu3OcgIQj/se2t21fHhKJV5Sk4vj.0xEG'
+INSERT INTO users (id, email, password_hash, full_name)
+SELECT v.id, v.email, '$2a$10$uYfAyrxO7at0lfUCLdJgLu3OcgIQj/se2t21fHhKJV5Sk4vj.0xEG', v.name
 FROM (VALUES
-    ('00000000-0000-4000-8000-000000000002'::uuid, 'Demo Admin'),
-    ('00000000-0000-4000-8000-000000000010'::uuid, 'Wanida Chai'),
-    ('00000000-0000-4000-8000-000000000011'::uuid, 'Somchai Wong'),
-    ('00000000-0000-4000-8000-000000000012'::uuid, 'Nok Rattana'),
-    ('00000000-0000-4000-8000-000000000013'::uuid, 'Ploy Siri'),
-    ('00000000-0000-4000-8000-000000000014'::uuid, 'Anan Boon'),
-    ('00000000-0000-4000-8000-000000000015'::uuid, 'Mek Thong'),
-    ('00000000-0000-4000-8000-000000000016'::uuid, 'Alice Acme'),
-    ('00000000-0000-4000-8000-000000000017'::uuid, 'Gary Globex')
-) AS v(id, name)
-WHERE u.id = v.id;
+    ('00000000-0000-4000-8000-000000000002'::uuid, 'demo@swiftquote.dev', 'Demo Admin'),
+    ('00000000-0000-4000-8000-000000000010'::uuid, 'woc@swiftquote.dev', 'Wanida Chai'),
+    ('00000000-0000-4000-8000-000000000011'::uuid, 'wo@swiftquote.dev', 'Somchai Wong'),
+    ('00000000-0000-4000-8000-000000000012'::uuid, 'rm1@swiftquote.dev', 'Nok Rattana'),
+    ('00000000-0000-4000-8000-000000000013'::uuid, 'rm2@swiftquote.dev', 'Ploy Siri'),
+    ('00000000-0000-4000-8000-000000000014'::uuid, 'wo2@swiftquote.dev', 'Anan Boon'),
+    ('00000000-0000-4000-8000-000000000015'::uuid, 'rm3@swiftquote.dev', 'Mek Thong'),
+    ('00000000-0000-4000-8000-000000000016'::uuid, 'buyer@acme.example', 'Alice Acme'),
+    ('00000000-0000-4000-8000-000000000017'::uuid, 'buyer@globex.example', 'Gary Globex')
+) AS v(id, email, name)
+ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, password_hash = EXCLUDED.password_hash,
+    full_name = EXCLUDED.full_name;
 
-UPDATE teams t SET name = v.name, wo_user_id = v.wo
-FROM (VALUES
-    ('00000000-0000-4000-8000-000000000020'::uuid, 'Team Alpha', '00000000-0000-4000-8000-000000000011'::uuid),
-    ('00000000-0000-4000-8000-000000000021'::uuid, 'Team Beta', '00000000-0000-4000-8000-000000000014'::uuid)
-) AS v(id, name, wo)
-WHERE t.id = v.id;
+INSERT INTO teams (id, organization_id, name, wo_user_id) VALUES
+    ('00000000-0000-4000-8000-000000000020', '00000000-0000-4000-8000-000000000001', 'Team Alpha', '00000000-0000-4000-8000-000000000011'),
+    ('00000000-0000-4000-8000-000000000021', '00000000-0000-4000-8000-000000000001', 'Team Beta', '00000000-0000-4000-8000-000000000014')
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, wo_user_id = EXCLUDED.wo_user_id;
 
-UPDATE organization_members m SET role = v.role, team_id = v.team, client_id = v.client, active = TRUE
+INSERT INTO organization_members (organization_id, user_id, role, team_id, client_id, active)
+SELECT '00000000-0000-4000-8000-000000000001', v.id, v.role, v.team, v.client, TRUE
 FROM (VALUES
     ('00000000-0000-4000-8000-000000000002'::uuid, 'admin', NULL::uuid, NULL::uuid),
     ('00000000-0000-4000-8000-000000000010'::uuid, 'woc', NULL, NULL),
@@ -55,12 +56,11 @@ FROM (VALUES
     ('00000000-0000-4000-8000-000000000016'::uuid, 'customer', NULL, '00000000-0000-4000-8000-000000000003'::uuid),
     ('00000000-0000-4000-8000-000000000017'::uuid, 'customer', NULL, '00000000-0000-4000-8000-000000000004'::uuid)
 ) AS v(id, role, team, client)
-WHERE m.user_id = v.id;
+ON CONFLICT (organization_id, user_id) DO UPDATE SET role = EXCLUDED.role, team_id = EXCLUDED.team_id,
+    client_id = EXCLUDED.client_id, active = TRUE;
 
-UPDATE product_categories c SET name = v.name, active = TRUE
-FROM (VALUES
-    ('00000000-0000-4000-8000-000000000030'::uuid, 'Software'),
-    ('00000000-0000-4000-8000-000000000031'::uuid, 'Services'),
-    ('00000000-0000-4000-8000-000000000032'::uuid, 'Hardware')
-) AS v(id, name)
-WHERE c.id = v.id;
+INSERT INTO product_categories (id, organization_id, name) VALUES
+    ('00000000-0000-4000-8000-000000000030', '00000000-0000-4000-8000-000000000001', 'Software'),
+    ('00000000-0000-4000-8000-000000000031', '00000000-0000-4000-8000-000000000001', 'Services'),
+    ('00000000-0000-4000-8000-000000000032', '00000000-0000-4000-8000-000000000001', 'Hardware')
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, active = TRUE;

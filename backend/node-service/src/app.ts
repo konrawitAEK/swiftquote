@@ -309,6 +309,12 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
     return adminUserView(u)
   })
 
+  // Deletes are POSTs whose body is ignored (never decoded), so any or no body is fine.
+  route('POST', `${api}/admin/users/:id/delete`, async (req, reply) => {
+    await d.admin.deleteUser(actor(req), pathUuid(req.params.id!))
+    return reply.code(204).send()
+  })
+
   route('GET', `${api}/admin/teams`, async (req) => (await d.admin.listTeams(actor(req))).map(teamView))
 
   route('POST', `${api}/admin/teams`, async (req, reply) => {
@@ -321,6 +327,11 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
     return teamView(await d.admin.updateTeam(actor(req), pathUuid(req.params.id!), b.name, b.woUserId))
   })
 
+  route('POST', `${api}/admin/teams/:id/delete`, async (req, reply) => {
+    await d.admin.deleteTeam(actor(req), pathUuid(req.params.id!))
+    return reply.code(204).send()
+  })
+
   route('POST', `${api}/admin/categories`, async (req, reply) => {
     const b = decode(req, createCategoryRequest)
     return reply.code(201).send(categoryView(await d.catalog.create(actor(req), b.name)))
@@ -329,6 +340,11 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
   route('PUT', `${api}/admin/categories/:id`, async (req) => {
     const b = decode(req, updateCategoryRequest)
     return categoryView(await d.catalog.update(actor(req), pathUuid(req.params.id!), b.name, b.active))
+  })
+
+  route('POST', `${api}/admin/categories/:id/delete`, async (req, reply) => {
+    await d.catalog.delete(actor(req), pathUuid(req.params.id!))
+    return reply.code(204).send()
   })
 
   // Share-link routes; a malformed token is reported like an unknown one.

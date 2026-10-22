@@ -19,6 +19,9 @@ import (
 // ErrDuplicate is returned by repositories when a unique email or team name already exists.
 var ErrDuplicate = errors.New("duplicate")
 
+// ErrInUse is returned by repositories when a delete hits a foreign key (a row was referenced meanwhile).
+var ErrInUse = errors.New("in use")
+
 const minPasswordLength = 8
 
 type User struct {
@@ -65,6 +68,13 @@ type Repository interface {
 	// CreateTeam and UpdateTeam return ErrDuplicate for an existing team name.
 	CreateTeam(ctx context.Context, orgID uuid.UUID, name string, woUserID uuid.UUID) (uuid.UUID, error)
 	UpdateTeam(ctx context.Context, orgID, id uuid.UUID, name string, woUserID uuid.UUID) error
+	// HasQuoteHistory reports whether the user created a quote or appears in any quote's history.
+	HasQuoteHistory(ctx context.Context, userID uuid.UUID) (bool, error)
+	// DeleteUser removes the membership, and the user once no membership is left; ErrInUse on a foreign key.
+	DeleteUser(ctx context.Context, orgID, id uuid.UUID) error
+	TeamHasMembers(ctx context.Context, orgID, teamID uuid.UUID) (bool, error)
+	// DeleteTeam returns ErrInUse if a member was added meanwhile.
+	DeleteTeam(ctx context.Context, orgID, id uuid.UUID) error
 }
 
 type Service struct {
@@ -173,6 +183,43 @@ func (s *Service) UpdateUser(ctx context.Context, a domain.Actor, id uuid.UUID, 
 	}
 	return s.repo.GetUser(ctx, a.TenantID, id)
 }
+
+// DeleteUser permanently removes an account nothing refers to; accounts with history are deactivated instead.
+func (s *Service) DeleteUser(ctx context.Context, a domain.Actor, id uuid.UUID) error {
+	if err := guard(a); err != nil {
+		return err
+	}
+	if _, err := s.repo.GetUser(ctx, a.TenantID, id); errors.Is(err, domain.ErrNotFound) {
+		return domain.NotFound("user not found")
+	} else if err != nil {
+		return err
+	}
+	if id == a.UserID {
+		return domain.Invalid("you cannot delete yourself")
+	}
+	leads, err := s.repo.LeadsTeam(ctx, a.TenantID, id)
+	if err != nil {
+		return err
+	}
+	if leads {
+		return domain.Conflict("user leads a team; assign another WO first")
+	}
+	history, err := s.repo.HasQuoteHistory(ctx, id)
+	if err != nil {
+		return err
+	}
+	if history {
+		return errUserHasHistory
+	}
+	if err := s.repo.DeleteUser(ctx, a.TenantID, id); errors.Is(err, ErrInUse) {
+		return errUserHasHistory
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
+
+var errUserHasHistory = domain.Conflict("user has quote history; deactivate instead")
 
 // checkUser validates name, role and placement (team for RMs, client for customers), appending to verr.
 func (s *Service) checkUser(ctx context.Context, a domain.Actor, in UserInput, verr *domain.ValidationError) error {
@@ -284,3 +331,30 @@ func (s *Service) checkTeam(ctx context.Context, a domain.Actor, name string, wo
 	}
 	return name, nil
 }
+
+// DeleteTeam removes an empty team; members must be moved to another team first.
+func (s *Service) DeleteTeam(ctx context.Context, a domain.Actor, id uuid.UUID) error {
+	if err := guard(a); err != nil {
+		return err
+	}
+	if _, err := s.repo.GetTeam(ctx, a.TenantID, id); errors.Is(err, domain.ErrNotFound) {
+		return domain.NotFound("team not found")
+	} else if err != nil {
+		return err
+	}
+	members, err := s.repo.TeamHasMembers(ctx, a.TenantID, id)
+	if err != nil {
+		return err
+	}
+	if members {
+		return errTeamHasMembers
+	}
+	if err := s.repo.DeleteTeam(ctx, a.TenantID, id); errors.Is(err, ErrInUse) {
+		return errTeamHasMembers
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
+
+var errTeamHasMembers = domain.Conflict("team has members; move them to another team first")

@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -477,6 +478,57 @@ func TestCategories(t *testing.T) {
 	body["items"] = []obj{{"title": "Workshop", "categoryId": catServices, "quantity": 1, "unitPrice": 10}}
 	q := e.expect(201, "", "POST", "/api/v1/quotes", rm, body)
 	assertEq(t, "line category", q["items"].([]any)[0].(obj)["category"].(obj)["name"], "Services")
+}
+
+func TestAdminDeletes(t *testing.T) {
+	e := newTestEnv(t)
+	adm := e.as("demo@swiftquote.dev")
+	del := func(status int, code, path string) obj {
+		t.Helper()
+		if status == 204 {
+			if s := e.do("POST", path, adm, nil, nil); s != 204 {
+				t.Fatalf("POST %s: status %d, want 204", path, s)
+			}
+			return nil
+		}
+		return e.expect(status, code, "POST", path, adm, nil)
+	}
+
+	// Users: only accounts nothing refers to; the rest are deactivated instead.
+	u := e.expect(201, "", "POST", "/api/v1/admin/users", adm,
+		obj{"email": "temp@swiftquote.dev", "name": "Temp", "password": "password", "role": "rm", "teamId": teamAlpha})
+	e.expect(403, "FORBIDDEN", "POST", "/api/v1/admin/users/"+u["id"].(string)+"/delete", e.as("woc@swiftquote.dev"), nil)
+	del(204, "", "/api/v1/admin/users/"+u["id"].(string)+"/delete")
+	del(404, "NOT_FOUND", "/api/v1/admin/users/"+u["id"].(string)+"/delete")
+	del(404, "NOT_FOUND", "/api/v1/admin/users/nope/delete")
+	e.expect(401, "UNAUTHORIZED", "POST", "/api/v1/auth/login", "", obj{"email": "temp@swiftquote.dev", "password": "password"})
+	res := del(400, "VALIDATION_ERROR", "/api/v1/admin/users/"+adminUser+"/delete")
+	assertEq(t, "self", res["details"], []any{"you cannot delete yourself"})
+	res = del(409, "CONFLICT", "/api/v1/admin/users/"+woUser+"/delete")
+	assertEq(t, "leads team", res["message"], "conflict: user leads a team; assign another WO first")
+	e.create("rm2@swiftquote.dev", "Q-DEL")
+	res = del(409, "CONFLICT", "/api/v1/admin/users/00000000-0000-4000-8000-000000000013/delete")
+	assertEq(t, "history", res["message"], "conflict: user has quote history; deactivate instead")
+
+	// Teams: only empty ones.
+	res = del(409, "CONFLICT", "/api/v1/admin/teams/"+teamAlpha+"/delete")
+	assertEq(t, "members", res["message"], "conflict: team has members; move them to another team first")
+	team := e.expect(201, "", "POST", "/api/v1/admin/teams", adm, obj{"name": "Empty", "woUserId": woUser})
+	del(204, "", "/api/v1/admin/teams/"+team["id"].(string)+"/delete")
+	del(404, "NOT_FOUND", "/api/v1/admin/teams/"+team["id"].(string)+"/delete")
+
+	// Categories: only unused ones; the body is ignored, even when it is not JSON.
+	res = del(409, "CONFLICT", "/api/v1/admin/categories/"+catServices+"/delete")
+	assertEq(t, "used", res["message"], "conflict: category is used on quotes; retire it instead")
+	c := e.expect(201, "", "POST", "/api/v1/admin/categories", adm, obj{"name": "Unused"})
+	req := httptest.NewRequest("POST", "/api/v1/admin/categories/"+c["id"].(string)+"/delete", strings.NewReader("{nope"))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adm)
+	resp, err := e.app.Test(req, -1)
+	if err != nil || resp.StatusCode != 204 {
+		t.Fatalf("delete with malformed body: %v %v", resp.StatusCode, err)
+	}
+	del(404, "NOT_FOUND", "/api/v1/admin/categories/"+c["id"].(string)+"/delete")
 }
 
 func TestErrorResponses(t *testing.T) {

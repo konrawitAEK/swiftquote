@@ -42,3 +42,11 @@
   padding: 16px;
   margin: 0;
 }
+
+.right {
+  white-space: nowrap;
+}
+
+.danger-text {
+  --mat-button-text-label-text-color: var(--sq-error);
+}

@@ -15,7 +15,10 @@ import (
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/domain"
 )
 
-const uniqueViolation = "23505"
+const (
+	uniqueViolation     = "23505"
+	foreignKeyViolation = "23503"
+)
 
 // Connect opens a pool with NUMERIC mapped to shopspring/decimal. Connections are lazy.
 func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
@@ -41,6 +44,11 @@ func New(pool *pgxpool.Pool) *Store {
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == uniqueViolation
+}
+
+func isForeignKeyViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == foreignKeyViolation
 }
 
 // FindLogin implements auth.Repository. A user in several tenants logs into their earliest active membership.
