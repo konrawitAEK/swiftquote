@@ -67,6 +67,23 @@ func (s *Store) UpdateCategory(ctx context.Context, orgID, id uuid.UUID, name st
 	return nil
 }
 
+func (s *Store) CategoryInUse(ctx context.Context, orgID, id uuid.UUID) (bool, error) {
+	return s.exists(ctx, `
+		SELECT EXISTS (SELECT 1 FROM quote_items i JOIN quotes q ON q.id = i.quote_id
+			WHERE q.organization_id = $1 AND i.category_id = $2)`, orgID, id)
+}
+
+func (s *Store) DeleteCategory(ctx context.Context, orgID, id uuid.UUID) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM product_categories WHERE organization_id = $1 AND id = $2`, orgID, id)
+	if isForeignKeyViolation(err) {
+		return catalog.ErrInUse
+	}
+	if err != nil {
+		return fmt.Errorf("delete category: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) ActiveCategoryIDs(ctx context.Context, orgID uuid.UUID) (map[uuid.UUID]bool, error) {
 	rows, err := s.pool.Query(ctx, `SELECT id FROM product_categories WHERE organization_id = $1 AND active`, orgID)
 	if err != nil {

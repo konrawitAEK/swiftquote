@@ -203,3 +203,46 @@ func (s *Store) UpdateTeam(ctx context.Context, orgID, id uuid.UUID, name string
 	}
 	return nil
 }
+
+func (s *Store) HasQuoteHistory(ctx context.Context, userID uuid.UUID) (bool, error) {
+	return s.exists(ctx, `
+		SELECT EXISTS (SELECT 1 FROM quotes WHERE created_by = $1)
+			OR EXISTS (SELECT 1 FROM quote_events WHERE actor_user_id = $1)`, userID)
+}
+
+func (s *Store) DeleteUser(ctx context.Context, orgID, id uuid.UUID) error {
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `DELETE FROM organization_members WHERE organization_id = $1 AND user_id = $2`, orgID, id); err != nil {
+			return fmt.Errorf("delete membership: %w", err)
+		}
+		_, err := tx.Exec(ctx, `
+			DELETE FROM users WHERE id = $1
+				AND NOT EXISTS (SELECT 1 FROM organization_members WHERE user_id = $1)`, id)
+		if isForeignKeyViolation(err) {
+			return admin.ErrInUse
+		}
+		if err != nil {
+			return fmt.Errorf("delete user: %w", err)
+		}
+		return nil
+	})
+}
+
+func (s *Store) TeamHasMembers(ctx context.Context, orgID, teamID uuid.UUID) (bool, error) {
+	return s.exists(ctx, `
+		SELECT EXISTS (SELECT 1 FROM organization_members WHERE organization_id = $1 AND team_id = $2)`, orgID, teamID)
+}
+
+func (s *Store) DeleteTeam(ctx context.Context, orgID, id uuid.UUID) error {
+	// members.team_id is ON DELETE SET NULL, so no foreign key stops this; re-check emptiness in the same statement.
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM teams t WHERE t.organization_id = $1 AND t.id = $2
+			AND NOT EXISTS (SELECT 1 FROM organization_members m WHERE m.team_id = t.id)`, orgID, id)
+	if err != nil {
+		return fmt.Errorf("delete team: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return admin.ErrInUse
+	}
+	return nil
+}

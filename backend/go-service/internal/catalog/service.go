@@ -17,12 +17,17 @@ import (
 // ErrDuplicate is returned by repositories when a category name already exists in the tenant.
 var ErrDuplicate = errors.New("duplicate category")
 
+// ErrInUse is returned by DeleteCategory when a quote line started using the category meanwhile.
+var ErrInUse = errors.New("category in use")
+
 type Repository interface {
 	// ListCategories returns all categories of the tenant, active or not, ordered by name.
 	ListCategories(ctx context.Context, orgID uuid.UUID) ([]domain.Category, error)
 	GetCategory(ctx context.Context, orgID, id uuid.UUID) (domain.Category, error)
 	CreateCategory(ctx context.Context, orgID uuid.UUID, name string) (uuid.UUID, error)
 	UpdateCategory(ctx context.Context, orgID, id uuid.UUID, name string, active bool) error
+	CategoryInUse(ctx context.Context, orgID, id uuid.UUID) (bool, error)
+	DeleteCategory(ctx context.Context, orgID, id uuid.UUID) error
 }
 
 type Service struct {
@@ -89,3 +94,30 @@ func (s *Service) Update(ctx context.Context, a domain.Actor, id uuid.UUID, name
 	}
 	return s.repo.GetCategory(ctx, a.TenantID, id)
 }
+
+// Delete removes a category no quote line uses; used ones are retired (active false) instead.
+func (s *Service) Delete(ctx context.Context, a domain.Actor, id uuid.UUID) error {
+	if a.Role != domain.RoleAdmin {
+		return domain.ErrRoleForbidden
+	}
+	if _, err := s.repo.GetCategory(ctx, a.TenantID, id); errors.Is(err, domain.ErrNotFound) {
+		return domain.NotFound("category not found")
+	} else if err != nil {
+		return err
+	}
+	used, err := s.repo.CategoryInUse(ctx, a.TenantID, id)
+	if err != nil {
+		return err
+	}
+	if used {
+		return errCategoryInUse
+	}
+	if err := s.repo.DeleteCategory(ctx, a.TenantID, id); errors.Is(err, ErrInUse) {
+		return errCategoryInUse
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
+
+var errCategoryInUse = domain.Conflict("category is used on quotes; retire it instead")

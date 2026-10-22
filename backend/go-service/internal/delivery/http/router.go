@@ -71,11 +71,15 @@ func NewRouter(d Deps) *fiber.App {
 	api.Get("/admin/users", h.requireAuth, h.listUsers)
 	api.Post("/admin/users", h.requireAuth, h.createUser)
 	api.Put("/admin/users/:id", h.requireAuth, h.updateUser)
+	// Deletes are POSTs on a /delete sub-resource; the body is ignored.
+	api.Post("/admin/users/:id/delete", h.requireAuth, h.deleteUser)
 	api.Get("/admin/teams", h.requireAuth, h.listTeams)
 	api.Post("/admin/teams", h.requireAuth, h.createTeam)
 	api.Put("/admin/teams/:id", h.requireAuth, h.updateTeam)
+	api.Post("/admin/teams/:id/delete", h.requireAuth, h.deleteTeam)
 	api.Post("/admin/categories", h.requireAuth, h.createCategory)
 	api.Put("/admin/categories/:id", h.requireAuth, h.updateCategory)
+	api.Post("/admin/categories/:id/delete", h.requireAuth, h.deleteCategory)
 
 	api.Get("/public/quotes/:accessToken", h.getPublicQuote)
 	api.Post("/public/quotes/:accessToken/accept", h.acceptPublicQuote)

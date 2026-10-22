@@ -341,6 +341,27 @@ func (h *handlers) updateTeam(c *fiber.Ctx) error {
 	return c.JSON(toTeamView(t))
 }
 
+func (h *handlers) deleteUser(c *fiber.Ctx) error {
+	if err := h.admin.DeleteUser(c.UserContext(), actor(c), pathID(c)); err != nil {
+		return err
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func (h *handlers) deleteTeam(c *fiber.Ctx) error {
+	if err := h.admin.DeleteTeam(c.UserContext(), actor(c), pathID(c)); err != nil {
+		return err
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func (h *handlers) deleteCategory(c *fiber.Ctx) error {
+	if err := h.catalog.Delete(c.UserContext(), actor(c), pathID(c)); err != nil {
+		return err
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
 func (h *handlers) getPublicQuote(c *fiber.Ctx) error {
 	v, err := h.quotes.GetPublic(c.UserContext(), accessToken(c))
 	if err != nil {

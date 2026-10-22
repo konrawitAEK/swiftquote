@@ -231,8 +231,9 @@ def scenario(base, prefix):
     status, newrm = request(base, "POST", "/admin/users", admin, {
         "email": f"{prefix}rm@example.com", "name": prefix + "New RM", "password": "password", "role": "rm", "teamId": TEAM_ALPHA})
     yield "create rm user", status, newrm
-    yield ("create customer user", *request(base, "POST", "/admin/users", admin, {
-        "email": f"{prefix}buyer@example.com", "name": prefix + "Buyer", "password": "password", "role": "customer", "clientId": ACME}))
+    status, newbuyer = request(base, "POST", "/admin/users", admin, {
+        "email": f"{prefix}buyer@example.com", "name": prefix + "Buyer", "password": "password", "role": "customer", "clientId": ACME})
+    yield "create customer user", status, newbuyer
     yield ("duplicate email", *request(base, "POST", "/admin/users", admin, {
         "email": f"{prefix}rm@example.com", "name": "x", "password": "password", "role": "rm"}))
     yield ("invalid user", *request(base, "POST", "/admin/users", admin, {
@@ -266,6 +267,26 @@ def scenario(base, prefix):
         "name": prefix + "New RM", "role": "rm", "active": False, "teamId": team["id"]}))
     yield ("deactivated token", *request(base, "GET", "/quotes", newrm_token))
     yield ("deactivated login", *request(base, "POST", "/auth/login", body={"email": f"{prefix}rm@example.com", "password": "password"}))
+
+    # Deletes are POSTs to .../delete; only rows nothing depends on can go.
+    yield ("delete as rm", *request(base, "POST", f"/admin/users/{newbuyer['id']}/delete", rm))
+    yield ("delete user without history", *request(base, "POST", f"/admin/users/{newbuyer['id']}/delete", admin))
+    yield ("delete user again", *request(base, "POST", f"/admin/users/{newbuyer['id']}/delete", admin))
+    yield ("delete malformed id", *request(base, "POST", "/admin/users/nope/delete", admin))
+    yield ("delete yourself", *request(base, "POST", "/admin/users/00000000-0000-4000-8000-000000000002/delete", admin))
+    yield ("delete team lead", *request(base, "POST", f"/admin/users/{WO2}/delete", admin))
+    yield ("delete user with history", *request(base, "POST", "/admin/users/00000000-0000-4000-8000-000000000012/delete", admin))
+    yield ("delete former lead (no history)", *request(base, "POST", f"/admin/users/{newwo['id']}/delete", admin, raw=b"{nope"))
+    yield ("delete team with members", *request(base, "POST", f"/admin/teams/{team['id']}/delete", admin))
+    status, empty = request(base, "POST", "/admin/teams", admin, {"name": prefix + "Empty", "woUserId": WO2})
+    yield "create empty team", status, empty
+    yield ("delete empty team", *request(base, "POST", f"/admin/teams/{empty['id']}/delete", admin, {}))
+    yield ("delete unknown team", *request(base, "POST", f"/admin/teams/{empty['id']}/delete", admin))
+    yield ("delete category in use", *request(base, "POST", f"/admin/categories/{SERVICES}/delete", admin))
+    yield ("delete unused category", *request(base, "POST", f"/admin/categories/{retired['id']}/delete", admin))
+    yield ("delete unknown category", *request(base, "POST", f"/admin/categories/{retired['id']}/delete", admin))
+    yield ("GET on a delete path", *request(base, "GET", f"/admin/categories/{SERVICES}/delete", admin))
+
     status, rows = request(base, "GET", "/admin/users", admin)
     yield "list users", status, mine(rows or [], lambda r: r["email"])
     status, rows = request(base, "GET", "/admin/teams", admin)
