@@ -61,7 +61,14 @@ Postgres-backed tests (Go, Node) use a throwaway `swiftquote_test` database rebu
 
 ## Frontends
 
-Each frontend has one folder per page, with shared components in `components/`.
+Each frontend has one folder per page, shared components in `components/`, and every API call in a
+service under one shared `services/` folder (one service per page, e.g. `quoteDetailService`):
+
+| App | HTTP client | Services |
+|---|---|---|
+| React | axios (`src/api/http.ts`: base URL, Bearer token, 401 → logout) | `src/services/*Service.ts` |
+| Next.js | axios in the browser (`src/lib/api/http.ts`) and on the server (`src/lib/api/server.ts`, session cookie) | `src/services/*Service.ts` |
+| Angular | `HttpClient` returning Observables (auth interceptor in `core/`) | `src/app/services/*.service.ts` |
 
 ```bash
 make test-react      # lint + tests + production build (same as CI)
