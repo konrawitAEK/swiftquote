@@ -19,6 +19,7 @@
     "@mui/material-nextjs": "9.5.0",
     "axios": "1.20.0",
     "decimal.js": "10.6.0",
+    "jose": "6.2.13",
     "next": "16.4.2",
     "react": "19.3.1",
     "react-dom": "19.3.1",

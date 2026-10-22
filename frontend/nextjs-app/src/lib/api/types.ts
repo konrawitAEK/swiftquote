@@ -10,7 +10,7 @@ function isErrorResponse(body: unknown): body is ErrorResponse {
 
 /** True when the request never got an HTTP response (API down, DNS, CORS, ...). */
 export function isNetworkError(err: unknown): boolean {
-  return !isAxiosError(err) || !err.response
+  return isAxiosError(err) && !err.response
 }
 
 /**
