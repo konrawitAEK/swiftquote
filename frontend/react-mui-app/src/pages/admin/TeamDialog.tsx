@@ -1,11 +1,10 @@
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField } from '@mui/material'
 import { useState } from 'react'
 import { errorText } from '../../api/http'
-import type { Schemas } from '../../api/types'
 import { adminService } from '../../services/adminService'
+import type { AdminUser, Team } from '../../models'
 
-type User = Schemas['AdminUser']
-type Team = Schemas['Team']
+type User = AdminUser
 
 /** Add a team or change its name and WO. */
 export function TeamDialog(props: { team: Team | null; wos: User[]; onClose: () => void; onSaved: () => void }) {

@@ -10,7 +10,7 @@ import { catchError, defer, finalize, map, of, type Observable } from 'rxjs';
 import { Alert } from '../../components/alert';
 import { StatusChip } from '../../components/status-chip';
 import { TotalRow } from '../../components/total-row';
-import { errorText, type QuoteDetail, type Role, type Schemas } from '../../core/api';
+import { errorText } from '../../core/api';
 import { AuthService } from '../../services/auth.service';
 import { formatDateTime } from '../../core/format';
 import { formatMoney } from '../../core/pricing';
@@ -21,6 +21,7 @@ import { QuoteDetailService } from '../../services/quote-detail.service';
 import { QuoteHistory } from './quote-history';
 import { ShareLink } from './share-link';
 import { shareUrl } from './share-url';
+import type { AcceptQuoteRequest, QuoteDetail, Role } from '../../models';
 
 /** Which workflow actions a role may take on a quote in its current status. */
 function availableActions(role: Role, q: QuoteDetail) {
@@ -126,7 +127,7 @@ export class QuoteDetailPage {
     this.run(this.quoteApi.send(this.id())).pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
   }
 
-  protected accept(body: Schemas['AcceptQuoteRequest']): void {
+  protected accept(body: AcceptQuoteRequest): void {
     this.run(this.quoteApi.accept(this.id(), body)).pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
   }
 

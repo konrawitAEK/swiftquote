@@ -2,7 +2,8 @@
 
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Stack, Switch, TextField } from '@mui/material'
 import { useState } from 'react'
-import { errorText, type ProductCategory as Category } from '@/lib/api/types'
+import { errorText } from '@/lib/api/types'
+import type { ProductCategory as Category } from '@/models'
 import { adminService } from '@/services/adminService'
 
 /** Add a product category, or rename / retire one. Retired categories stay on existing quotes. */

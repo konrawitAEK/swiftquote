@@ -24,7 +24,6 @@ import {
 import { useCallback, useEffect, useState } from 'react'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import { errorText } from '../../api/http'
-import type { Role, Schemas } from '../../api/types'
 import { useAuth } from '../../auth/auth'
 import { SENT_STATUSES } from '../../auth/roles'
 import { AcceptCard } from './AcceptCard'
@@ -35,8 +34,9 @@ import { shareUrl } from './shareUrl'
 import { StatusChip } from '../../components/StatusChip'
 import { TotalRow } from '../../components/TotalRow'
 import { formatMoney } from '../../pricing/pricing'
+import type { QuoteDetail, Role } from '../../models'
 
-type Quote = Schemas['QuoteDetail']
+type Quote = QuoteDetail
 type CommentAction = 'submit' | 'approve' | 'return' | 'reject'
 
 interface DialogSpec {

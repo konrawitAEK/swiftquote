@@ -1,5 +1,5 @@
 import { http } from '@/lib/api/http'
-import type { AcceptQuoteRequest, CommentRequest, PublicQuoteView, QuoteDetail } from '@/lib/api/types'
+import type { AcceptQuoteRequest, CommentRequest, PublicQuoteView, QuoteDetail } from '@/models'
 
 const quotePath = (accessToken: string) => `/public/quotes/${encodeURIComponent(accessToken)}`
 

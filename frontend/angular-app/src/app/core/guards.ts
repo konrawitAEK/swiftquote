@@ -1,8 +1,8 @@
 import { inject } from '@angular/core';
 import { Router, type CanActivateFn, type UrlTree } from '@angular/router';
-import type { Role } from './api';
 import { AuthService } from '../services/auth.service';
 import { homePath } from './roles';
+import type { Role } from '../models';
 
 /** Requires a session; with `roles`, other roles are sent to their own home page. */
 export function roleGuard(roles?: Role[]): CanActivateFn {

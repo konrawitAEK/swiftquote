@@ -5,7 +5,7 @@ import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { SignaturePad } from '../../components/signature-pad';
-import type { Schemas } from '../../core/api';
+import type { AcceptQuoteRequest } from '../../models';
 
 /** Customer's signature form on a sent quote. */
 @Component({
@@ -38,7 +38,7 @@ import type { Schemas } from '../../core/api';
 })
 export class AcceptCard {
   readonly busy = input(false);
-  readonly accept = output<Schemas['AcceptQuoteRequest']>();
+  readonly accept = output<AcceptQuoteRequest>();
 
   protected readonly signerName = signal('');
   protected readonly signature = signal<string | null>(null);

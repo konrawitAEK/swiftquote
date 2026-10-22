@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react'
-import type { Schemas } from '../api/types'
+import type { AuthResponse } from '../models'
 
-export type AuthUser = Schemas['AuthResponse']['user']
+export type AuthUser = AuthResponse['user']
 
 export interface AuthState {
   isAuthenticated: boolean

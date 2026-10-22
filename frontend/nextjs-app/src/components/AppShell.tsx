@@ -4,9 +4,9 @@ import { AppBar, Box, Button, Chip, Container, Stack, Toolbar, Typography } from
 import NextLink from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
-import type { Role } from '@/lib/api/types'
 import { homePath, ROLE_LABELS } from '@/lib/auth/roles'
 import { useAuth } from './AuthProvider'
+import type { Role } from '@/models'
 
 const NAV: Record<Role, { to: string; label: string }[]> = {
   admin: [{ to: '/admin', label: 'Users & teams' }],

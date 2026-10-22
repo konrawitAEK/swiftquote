@@ -7,11 +7,11 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { finalize } from 'rxjs';
 import { Alert } from '../../components/alert';
-import { errorText, type Schemas } from '../../core/api';
+import { errorText } from '../../core/api';
 import { AdminService } from '../../services/admin.service';
+import type { AdminUser, Team } from '../../models';
 
-type User = Schemas['AdminUser'];
-type Team = Schemas['Team'];
+type User = AdminUser;
 
 export interface TeamDialogData {
   team: Team | null;

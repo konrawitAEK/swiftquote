@@ -2,7 +2,8 @@
 
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField } from '@mui/material'
 import { useState } from 'react'
-import { errorText, type AdminUser as User, type Team, type TeamRequest } from '@/lib/api/types'
+import { errorText } from '@/lib/api/types'
+import type { AdminUser as User, Team, TeamRequest } from '@/models'
 import { adminService } from '@/services/adminService'
 
 /** Add a team or change its name and WO. */

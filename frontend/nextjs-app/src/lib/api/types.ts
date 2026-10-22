@@ -1,29 +1,5 @@
 import { isAxiosError } from 'axios'
-import type { components } from '@/api/schema'
-
-// Types generated from contracts/openapi.yaml (`make gen-types`).
-export type Schemas = components['schemas']
-export type QuoteStatus = Schemas['QuoteStatus']
-export type Role = Schemas['Role']
-export type ErrorResponse = Schemas['ErrorResponse']
-export type LoginRequest = Schemas['LoginRequest']
-export type AuthResponse = Schemas['AuthResponse']
-export type Client = Schemas['Client']
-export type ProductCategory = Schemas['ProductCategory']
-export type CreateCategoryRequest = Schemas['CreateCategoryRequest']
-export type UpdateCategoryRequest = Schemas['UpdateCategoryRequest']
-export type CreateQuoteRequest = Schemas['CreateQuoteRequest']
-export type CommentRequest = Schemas['CommentRequest']
-export type AcceptQuoteRequest = Schemas['AcceptQuoteRequest']
-export type QuoteSummary = Schemas['QuoteSummary']
-export type QuoteDetail = Schemas['QuoteDetail']
-export type PublicQuoteView = Schemas['PublicQuoteView']
-export type DashboardSummary = Schemas['DashboardSummary']
-export type AdminUser = Schemas['AdminUser']
-export type CreateUserRequest = Schemas['CreateUserRequest']
-export type UpdateUserRequest = Schemas['UpdateUserRequest']
-export type Team = Schemas['Team']
-export type TeamRequest = Schemas['TeamRequest']
+import type { ErrorResponse } from '@/models'
 
 /** Browser-facing API base URL, inlined at build time. */
 export const PUBLIC_API_URL: string = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1'

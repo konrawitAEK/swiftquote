@@ -5,10 +5,11 @@ import NextLink from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from 'react'
 import { TotalRow } from '@/components/TotalRow'
-import { errorText, type Client, type CreateQuoteRequest, type ProductCategory } from '@/lib/api/types'
+import { errorText } from '@/lib/api/types'
 import { calculate, formatMoney, toDecimal } from '@/lib/pricing/pricing'
 import { LineItems, newLine, type Line } from './LineItems'
 import { quoteBuilderService } from '@/services/quoteBuilderService'
+import type { Client, CreateQuoteRequest, ProductCategory } from '@/models'
 
 /** YYYY-MM-DD in the user's local time zone. */
 function isoDate(d: Date): string {

@@ -1,13 +1,13 @@
 import { http } from '../api/http'
-import type { Schemas } from '../api/types'
+import type { AcceptQuoteRequest, CommentRequest, QuoteDetail } from '../models'
 
-type Quote = Schemas['QuoteDetail']
+type Quote = QuoteDetail
 
 const quotePath = (id: string, action?: string) => `/quotes/${encodeURIComponent(id)}${action ? `/${action}` : ''}`
 
 /** Workflow actions that take an optional comment. */
 async function withComment(id: string, action: 'submit' | 'approve' | 'return' | 'reject', comment: string | null): Promise<Quote> {
-  const body: Schemas['CommentRequest'] = { comment }
+  const body: CommentRequest = { comment }
   const { data } = await http.post<Quote>(quotePath(id, action), body)
   return data
 }
@@ -28,7 +28,7 @@ export const quoteDetailService = {
     return data
   },
 
-  async accept(id: string, body: Schemas['AcceptQuoteRequest']): Promise<Quote> {
+  async accept(id: string, body: AcceptQuoteRequest): Promise<Quote> {
     const { data } = await http.post<Quote>(quotePath(id, 'accept'), body)
     return data
   },

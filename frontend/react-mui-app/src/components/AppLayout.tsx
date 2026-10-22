@@ -1,8 +1,8 @@
 import { AppBar, Box, Button, Chip, Container, Stack, Toolbar, Typography } from '@mui/material'
 import { Navigate, NavLink, Outlet, Link as RouterLink } from 'react-router-dom'
-import type { Role } from '../api/types'
 import { useAuth } from '../auth/auth'
 import { homePath, ROLE_LABELS } from '../auth/roles'
+import type { Role } from '../models'
 
 const NAV: Record<Role, { to: string; label: string }[]> = {
   admin: [{ to: '/admin', label: 'Users & teams' }],

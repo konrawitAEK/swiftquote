@@ -19,12 +19,12 @@ import {
 import { useEffect, useState } from 'react'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { errorText } from '../../api/http'
-import type { QuoteStatus, Role, Schemas } from '../../api/types'
 import { useAuth } from '../../auth/auth'
 import { STATUS_LABELS } from '../../auth/roles'
 import { StatusChip } from '../../components/StatusChip'
 import { formatMoney } from '../../pricing/pricing'
 import { quotesService } from '../../services/quotesService'
+import type { QuoteStatus, QuoteSummary, Role } from '../../models'
 
 const STATUSES: QuoteStatus[] = ['draft', 'pending_approval', 'approved', 'sent', 'viewed', 'accepted', 'rejected']
 const CUSTOMER_STATUSES: QuoteStatus[] = ['sent', 'viewed', 'accepted', 'rejected']
@@ -41,7 +41,7 @@ export function QuotesPage() {
   const role = useAuth().user?.role ?? 'rm'
   const showCreator = role === 'wo' || role === 'woc'
   const [status, setStatus] = useState<QuoteStatus | ''>('')
-  const [quotes, setQuotes] = useState<Schemas['QuoteSummary'][] | null>(null)
+  const [quotes, setQuotes] = useState<QuoteSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
 

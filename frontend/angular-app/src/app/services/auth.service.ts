@@ -2,11 +2,12 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { map, type Observable } from 'rxjs';
-import { API_URL, type Schemas } from '../core/api';
+import { API_URL } from '../core/api';
 import { ROLE_LABELS } from '../core/roles';
 import { getToken, setToken } from '../core/token';
+import type { AuthResponse, LoginRequest } from '../models';
 
-export type AuthUser = Schemas['AuthResponse']['user'];
+export type AuthUser = AuthResponse['user'];
 
 const USER_KEY = 'swiftquote.user';
 
@@ -45,8 +46,8 @@ export class AuthService {
 
   /** Signs in and stores the session; emits the signed-in user, or errors with the HttpErrorResponse. */
   login(email: string, password: string): Observable<AuthUser> {
-    const body: Schemas['LoginRequest'] = { email, password };
-    return this.http.post<Schemas['AuthResponse']>(`${API_URL}/auth/login`, body).pipe(
+    const body: LoginRequest = { email, password };
+    return this.http.post<AuthResponse>(`${API_URL}/auth/login`, body).pipe(
       map((data) => {
         setToken(data.accessToken);
         saveUser(data.user);

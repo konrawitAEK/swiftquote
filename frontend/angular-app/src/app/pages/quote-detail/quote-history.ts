@@ -1,8 +1,7 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
-import type { Schemas } from '../../core/api';
 import { formatDateTime } from '../../core/format';
+import type { QuoteEvent } from '../../models';
 
-type QuoteEvent = Schemas['QuoteEvent'];
 
 const LABELS: Record<QuoteEvent['action'], string> = {
   created: 'Created',

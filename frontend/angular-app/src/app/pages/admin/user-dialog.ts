@@ -8,14 +8,13 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { finalize } from 'rxjs';
 import { Alert } from '../../components/alert';
-import { errorText, type Role, type Schemas } from '../../core/api';
+import { errorText } from '../../core/api';
 import { AuthService } from '../../services/auth.service';
 import { ROLE_LABELS, ROLES } from '../../core/roles';
 import { AdminService } from '../../services/admin.service';
+import type { AdminUser, Client, Role, Team } from '../../models';
 
-type User = Schemas['AdminUser'];
-type Team = Schemas['Team'];
-type Client = Schemas['Client'];
+type User = AdminUser;
 
 export interface UserDialogData {
   user: User | null;

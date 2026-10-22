@@ -17,6 +17,11 @@ module.exports = defineConfig(
     },
   },
   {
+    // Models are interfaces that only extend the generated schema types.
+    files: ['src/app/models/**/*.ts'],
+    rules: { '@typescript-eslint/no-empty-object-type': ['error', { allowInterfaces: 'with-single-extends' }] },
+  },
+  {
     files: ['**/*.html'],
     extends: [angular.configs.templateRecommended, angular.configs.templateAccessibility],
     rules: {

@@ -1,7 +1,7 @@
-import type { Schemas } from '@/lib/api/types'
+import type { DashboardSummary, Measure } from '@/models'
 
-export type Summary = Schemas['DashboardSummary']
-export type Measure = Schemas['Measure']
+export type Summary = DashboardSummary
+export type { Measure } from '@/models'
 
 /** Which figure the dashboard ranks and charts. */
 export type MeasureKey = 'won' | 'pending'

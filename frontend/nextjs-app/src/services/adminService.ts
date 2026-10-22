@@ -1,15 +1,5 @@
 import { http } from '@/lib/api/http'
-import type {
-  AdminUser,
-  Client,
-  CreateCategoryRequest,
-  CreateUserRequest,
-  ProductCategory,
-  Team,
-  TeamRequest,
-  UpdateCategoryRequest,
-  UpdateUserRequest,
-} from '@/lib/api/types'
+import type { AdminUser, Client, CreateCategoryRequest, CreateUserRequest, ProductCategory, Team, TeamRequest, UpdateCategoryRequest, UpdateUserRequest } from '@/models'
 
 export type AdminData = { users: AdminUser[]; teams: Team[]; clients: Client[]; categories: ProductCategory[] }
 export type DeleteKind = 'user' | 'team' | 'category'

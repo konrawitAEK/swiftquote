@@ -20,9 +20,10 @@ import {
 } from '@mui/material'
 import { useEffect, useState, type FormEvent } from 'react'
 import { SignaturePad } from '@/components/SignaturePad'
-import { errorText, isNetworkError, type PublicQuoteView } from '@/lib/api/types'
+import { errorText, isNetworkError } from '@/lib/api/types'
 import { formatMoney } from '@/lib/pricing/pricing'
 import { publicQuoteService } from '@/services/publicQuoteService'
+import type { PublicQuoteView } from '@/models'
 
 type LoadState =
   | { kind: 'loading' }

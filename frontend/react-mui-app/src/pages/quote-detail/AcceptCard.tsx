@@ -1,10 +1,10 @@
 import { Button, Card, CardContent, Stack, TextField, Typography } from '@mui/material'
 import { useState } from 'react'
-import type { Schemas } from '../../api/types'
 import { SignaturePad } from '../../components/SignaturePad'
+import type { AcceptQuoteRequest } from '../../models'
 
 /** Customer's signature form on a sent quote. */
-export function AcceptCard({ busy, onAccept }: { busy: boolean; onAccept: (body: Schemas['AcceptQuoteRequest']) => void }) {
+export function AcceptCard({ busy, onAccept }: { busy: boolean; onAccept: (body: AcceptQuoteRequest) => void }) {
   const [signerName, setSignerName] = useState('')
   const [signature, setSignature] = useState<string | null>(null)
   return (

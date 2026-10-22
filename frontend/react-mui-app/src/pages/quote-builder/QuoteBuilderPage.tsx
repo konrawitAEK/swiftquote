@@ -19,10 +19,10 @@ import {
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
 import { errorText } from '../../api/http'
-import type { Schemas } from '../../api/types'
 import { TotalRow } from '../../components/TotalRow'
 import { calculate, formatMoney, toDecimal } from '../../pricing/pricing'
 import { quoteBuilderService } from '../../services/quoteBuilderService'
+import type { Client, ProductCategory } from '../../models'
 
 interface Line {
   key: number
@@ -62,8 +62,8 @@ export function QuoteBuilderPage() {
   const { id } = useParams()
   const editing = id !== undefined
   const navigate = useNavigate()
-  const [clients, setClients] = useState<Schemas['Client'][]>([])
-  const [categories, setCategories] = useState<Schemas['ProductCategory'][]>([])
+  const [clients, setClients] = useState<Client[]>([])
+  const [categories, setCategories] = useState<ProductCategory[]>([])
   const [clientId, setClientId] = useState('')
   const [quoteNumber, setQuoteNumber] = useState(defaultQuoteNumber)
   const [today] = useState(() => isoDate(new Date()))
