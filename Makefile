@@ -4,7 +4,7 @@ BACKENDS := go spring node
 FRONTENDS := react next angular
 RUN_MATRIX := $(foreach b,$(BACKENDS),$(foreach f,$(FRONTENDS),run-$(b)-$(f)))
 
-.PHONY: help gen-types test-db test-go test-spring test-node run-go run-spring run-node smoke parity bench reset-db dev-db stop $(RUN_MATRIX)
+.PHONY: help gen-types test-db test-go test-spring test-node test-react test-next test-angular run-go run-spring run-node smoke parity bench reset-db stop $(RUN_MATRIX)
 
 help:
 	@echo "SwiftQuote Polyglot Commands:"
@@ -16,6 +16,7 @@ help:
 	@echo "  make test-go             - Vet and test the Go backend (+ Postgres if running)"
 	@echo "  make test-spring         - Spring unit + integration tests (needs Docker)"
 	@echo "  make test-node           - Node unit tests (+ Postgres tests if running)"
+	@echo "  make test-<fe>           - Lint, test and build a frontend: test-react, test-next, test-angular"
 	@echo "  make parity              - Run Go (:8080), Spring (:8081), Node (:8082) and diff responses"
 	@echo "  make bench               - Same three backends, compare throughput one at a time (ab)"
 	@echo "  make reset-db            - Drop the DB volume so migrations re-run"
@@ -57,6 +58,17 @@ test-spring:
 
 run-node:
 	docker compose --profile node up --build
+
+# Frontends: lint, unit tests (shared pricing fixtures) and a production build, as in CI.
+test-react:
+	cd frontend/react-mui-app && npm ci --silent && npm run lint && npm test && npm run build
+
+test-next:
+	cd frontend/nextjs-app && npm ci --silent && npm run lint && npm run typecheck && npm test && npm run build
+
+# The Angular CLI needs Node >= 22.22.3 (or 24.15+).
+test-angular:
+	cd frontend/angular-app && npm ci --silent && npm run lint && npm test && npm run build
 
 # Like test-go: Postgres-backed tests use a throwaway $(TEST_DB) recreated from db/migrations.
 test-node:
