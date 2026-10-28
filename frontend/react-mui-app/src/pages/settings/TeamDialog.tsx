@@ -1,7 +1,7 @@
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField } from '@mui/material'
 import { useState } from 'react'
 import { errorText } from '../../api/http'
-import { adminService } from '../../services/adminService'
+import { settingsService } from '../../services/settingsService'
 import type { AdminUser, Team } from '../../models'
 
 type User = AdminUser
@@ -19,8 +19,8 @@ export function TeamDialog(props: { team: Team | null; wos: User[]; onClose: () 
     setError(null)
     try {
       const body = { name, woUserId }
-      if (team) await adminService.updateTeam(team.id, body)
-      else await adminService.createTeam(body)
+      if (team) await settingsService.updateTeam(team.id, body)
+      else await settingsService.createTeam(body)
       onSaved()
     } catch (err) {
       setError(errorText(err, 'Could not save team'))

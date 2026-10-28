@@ -5,7 +5,7 @@ import { homePath, ROLE_LABELS } from '../auth/roles'
 import type { Role } from '../models'
 
 const NAV: Record<Role, { to: string; label: string }[]> = {
-  admin: [{ to: '/admin', label: 'Users & teams' }],
+  admin: [{ to: '/settings', label: 'Settings' }],
   woc: [
     { to: '/dashboard', label: 'Dashboard' },
     { to: '/quotes', label: 'All quotations' },

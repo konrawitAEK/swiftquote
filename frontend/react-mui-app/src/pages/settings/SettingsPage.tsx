@@ -20,26 +20,34 @@ import { useEffect, useState } from 'react'
 import { errorText } from '../../api/http'
 import { useAuth } from '../../auth/auth'
 import { ROLE_LABELS } from '../../auth/roles'
-import { adminService } from '../../services/adminService'
+import { formatMoney } from '../../pricing/pricing'
+import { settingsService } from '../../services/settingsService'
 import { CategoryDialog } from './CategoryDialog'
 import { DeleteDialog, type DeleteTarget } from './DeleteDialog'
+import { ProductDialog } from './ProductDialog'
 import { TeamDialog } from './TeamDialog'
 import { UserDialog } from './UserDialog'
-import type { AdminUser, Client, ProductCategory, Team } from '../../models'
+import type { AdminUser, Client, Product, ProductCategory, Team } from '../../models'
 
 type User = AdminUser
 type Category = ProductCategory
 
-const ADD_LABELS = ['Add user', 'Add team', 'Add category']
+const ADD_LABELS = ['Add user', 'Add team', 'Add category', 'Add product']
 
-/** Admin: people, team structure and product categories. */
-export function AdminPage() {
+const stockText = (stock: number | null | undefined) =>
+  stock === null || stock === undefined ? 'not tracked' : stock.toLocaleString('en-US', { maximumFractionDigits: 2 })
+
+/** Settings (Back Office): people, team structure, product categories and products. */
+export function SettingsPage() {
   const [tab, setTab] = useState(0)
   const [users, setUsers] = useState<User[] | null>(null)
   const [teams, setTeams] = useState<Team[]>([])
   const [clients, setClients] = useState<Client[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [editingCategory, setEditingCategory] = useState<Category | 'new' | null>(null)
+  const [products, setProducts] = useState<Product[]>([])
+  const [editingProduct, setEditingProduct] = useState<Product | 'new' | null>(null)
+  const [toggling, setToggling] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editingUser, setEditingUser] = useState<User | 'new' | null>(null)
   const [editingTeam, setEditingTeam] = useState<Team | 'new' | null>(null)
@@ -52,13 +60,20 @@ export function AdminPage() {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([adminService.listUsers(), adminService.listTeams(), adminService.listClients(), adminService.listCategories()])
-      .then(([u, t, c, cat]) => {
+    Promise.all([
+      settingsService.listUsers(),
+      settingsService.listTeams(),
+      settingsService.listClients(),
+      settingsService.listCategories(),
+      settingsService.listProducts(),
+    ])
+      .then(([u, t, c, cat, p]) => {
         if (cancelled) return
         setUsers(u)
         setTeams(t)
         setClients(c)
         setCategories(cat)
+        setProducts(p)
       })
       .catch((err: unknown) => !cancelled && setError(errorText(err, 'Could not load')))
     return () => {
@@ -66,18 +81,39 @@ export function AdminPage() {
     }
   }, [version])
 
+  /** Retire or reactivate a product: a full update with only the active flag flipped. */
+  const toggleProduct = async (p: Product) => {
+    setToggling(p.id)
+    setError(null)
+    try {
+      await settingsService.updateProduct(p.id, {
+        name: p.name,
+        categoryId: p.category.id,
+        unitPrice: p.unitPrice,
+        unitCost: p.unitCost,
+        stock: p.stock ?? null,
+        active: !p.active,
+      })
+      reload()
+    } catch (err) {
+      setError(errorText(err, `Could not update ${p.name}`))
+    } finally {
+      setToggling(null)
+    }
+  }
+
   const activeWOs = (users ?? []).filter((u) => u.role === 'wo' && u.active)
 
   return (
     <Stack spacing={3}>
       <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
         <Typography variant="h4" component="h1" sx={{ fontWeight: 700 }}>
-          Users & teams
+          Settings
         </Typography>
         <Button
           variant="contained"
           startIcon={<AddIcon />}
-          onClick={() => [setEditingUser, setEditingTeam, setEditingCategory][tab]('new')}
+          onClick={() => [setEditingUser, setEditingTeam, setEditingCategory, setEditingProduct][tab]('new')}
         >
           {ADD_LABELS[tab]}
         </Button>
@@ -90,6 +126,7 @@ export function AdminPage() {
           <Tab label={`Users${users ? ` (${users.length})` : ''}`} />
           <Tab label={`Teams (${teams.length})`} />
           <Tab label={`Product categories (${categories.length})`} />
+          <Tab label={`Products (${products.length})`} />
         </Tabs>
         {!users && !error && <LinearProgress />}
         {users && tab === 0 && (
@@ -221,7 +258,60 @@ export function AdminPage() {
               </TableBody>
             </Table>
             <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
-              RMs pick a category for every quote line; the WOC dashboard can break sales down by category.
+              Every product belongs to a category; the WOC dashboard can break sales down by category.
+            </Typography>
+          </TableContainer>
+        )}
+        {users && tab === 3 && (
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Product</TableCell>
+                  <TableCell>Category</TableCell>
+                  <TableCell align="right">Selling price</TableCell>
+                  <TableCell align="right">Cost</TableCell>
+                  <TableCell align="right">Stock</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell />
+                </TableRow>
+              </TableHead>
+              <TableBody sx={{ '& td': { fontVariantNumeric: 'tabular-nums' } }}>
+                {products.map((p) => (
+                  <TableRow key={p.id} sx={{ opacity: p.active ? 1 : 0.55 }}>
+                    <TableCell sx={{ fontWeight: 500 }}>{p.name}</TableCell>
+                    <TableCell>{p.category.name}</TableCell>
+                    <TableCell align="right">{formatMoney(p.unitPrice)}</TableCell>
+                    <TableCell align="right">{formatMoney(p.unitCost)}</TableCell>
+                    <TableCell align="right" sx={{ color: p.stock == null ? 'text.secondary' : undefined }}>
+                      {stockText(p.stock)}
+                    </TableCell>
+                    <TableCell>
+                      <Chip size="small" label={p.active ? 'Active' : 'Retired'} color={p.active ? 'success' : 'default'} variant="outlined" />
+                    </TableCell>
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                      <Button size="small" onClick={() => setEditingProduct(p)}>
+                        Edit
+                      </Button>
+                      <Button size="small" disabled={toggling === p.id} onClick={() => toggleProduct(p)}>
+                        {p.active ? 'Retire' : 'Reactivate'}
+                      </Button>
+                      <Button
+                        size="small"
+                        color="error"
+                        aria-label={`Delete ${p.name}`}
+                        onClick={() => setDeleting({ kind: 'product', id: p.id, name: p.name })}
+                      >
+                        Delete
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+              RMs pick an active product for every quote line. Cost and profit are shown to staff, never to customers.
+              Tracked stock is checked when a quote is submitted or sent and deducted when the customer accepts.
             </Typography>
           </TableContainer>
         )}
@@ -243,6 +333,17 @@ export function AdminPage() {
           onClose={() => setEditingCategory(null)}
           onSaved={() => {
             setEditingCategory(null)
+            reload()
+          }}
+        />
+      )}
+      {editingProduct && (
+        <ProductDialog
+          product={editingProduct === 'new' ? null : editingProduct}
+          categories={categories}
+          onClose={() => setEditingProduct(null)}
+          onSaved={() => {
+            setEditingProduct(null)
             reload()
           }}
         />

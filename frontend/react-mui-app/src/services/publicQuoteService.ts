@@ -1,4 +1,4 @@
-import { http } from '../api/http'
+import { downloadFile, http } from '../api/http'
 import type { AcceptQuoteRequest, CommentRequest, PublicQuoteView, QuoteDetail } from '../models'
 
 const publicPath = (accessToken: string, action?: string) =>
@@ -20,4 +20,7 @@ export const publicQuoteService = {
     const { data } = await http.post<QuoteDetail>(publicPath(accessToken, 'reject'), body)
     return data
   },
+
+  /** Saves the quote as a PDF. */
+  downloadPdf: (accessToken: string, quoteNumber: string) => downloadFile(publicPath(accessToken, 'pdf'), `${quoteNumber}.pdf`),
 }

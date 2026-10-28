@@ -1,7 +1,7 @@
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Stack, Switch, TextField } from '@mui/material'
 import { useState } from 'react'
 import { errorText } from '../../api/http'
-import { adminService } from '../../services/adminService'
+import { settingsService } from '../../services/settingsService'
 import type { ProductCategory } from '../../models'
 
 type Category = ProductCategory
@@ -18,8 +18,8 @@ export function CategoryDialog(props: { category: Category | null; onClose: () =
     setBusy(true)
     setError(null)
     try {
-      if (category) await adminService.updateCategory(category.id, { name, active })
-      else await adminService.createCategory({ name })
+      if (category) await settingsService.updateCategory(category.id, { name, active })
+      else await settingsService.createCategory({ name })
       onSaved()
     } catch (err) {
       setError(errorText(err, 'Could not save category'))

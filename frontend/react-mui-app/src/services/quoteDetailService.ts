@@ -1,4 +1,4 @@
-import { http } from '../api/http'
+import { downloadFile, http } from '../api/http'
 import type { AcceptQuoteRequest, CommentRequest, QuoteDetail } from '../models'
 
 type Quote = QuoteDetail
@@ -32,4 +32,7 @@ export const quoteDetailService = {
     const { data } = await http.post<Quote>(quotePath(id, 'accept'), body)
     return data
   },
+
+  /** Saves the quote as a PDF (approved, sent, viewed, accepted or rejected only). */
+  downloadPdf: (id: string, quoteNumber: string) => downloadFile(quotePath(id, 'pdf'), `${quoteNumber}.pdf`),
 }

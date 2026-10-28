@@ -1,17 +1,18 @@
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Stack } from '@mui/material'
 import { useState } from 'react'
 import { errorText } from '../../api/http'
-import { adminService } from '../../services/adminService'
+import { settingsService } from '../../services/settingsService'
 
-export type DeleteTarget = { kind: 'user' | 'team' | 'category'; id: string; name: string }
+export type DeleteTarget = { kind: 'user' | 'team' | 'category' | 'product'; id: string; name: string }
 
 const EXPLANATIONS: Record<DeleteTarget['kind'], string> = {
   user: "This permanently removes the account. Users with quote history can't be deleted; deactivate them instead.",
   team: 'Only empty teams can be deleted.',
-  category: "Categories used on quotes can't be deleted; retire them instead.",
+  category: "Categories used on quotes or by products can't be deleted; retire them instead.",
+  product: "Products used on quotes can't be deleted; retire them instead.",
 }
 
-/** Confirm a permanent delete of a user, team or category; API refusals stay in the dialog. */
+/** Confirm a permanent delete of a user, team, category or product; API refusals stay in the dialog. */
 export function DeleteDialog(props: { target: DeleteTarget; onClose: () => void; onDeleted: () => void }) {
   const { target, onClose, onDeleted } = props
   const [error, setError] = useState<string | null>(null)
@@ -21,7 +22,7 @@ export function DeleteDialog(props: { target: DeleteTarget; onClose: () => void;
     setBusy(true)
     setError(null)
     try {
-      await adminService.remove(target.kind, target.id)
+      await settingsService.remove(target.kind, target.id)
       onDeleted()
     } catch (err) {
       setError(errorText(err, `Could not delete ${target.name}`))

@@ -1,11 +1,12 @@
 import { http } from '../api/http'
-import type { Client, CreateQuoteRequest, ProductCategory, QuoteDetail } from '../models'
+import type { Client, CreateQuoteRequest, Product, QuoteDetail } from '../models'
 
 type Quote = QuoteDetail
 
 export const quoteBuilderService = {
-  async listCategories(): Promise<ProductCategory[]> {
-    const { data } = await http.get<ProductCategory[]>('/categories')
+  /** All products, retired ones included; only active ones may go on a line. */
+  async listProducts(): Promise<Product[]> {
+    const { data } = await http.get<Product[]>('/products')
     return data
   },
 

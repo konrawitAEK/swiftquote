@@ -6,7 +6,7 @@ import { homePath } from '../../auth/roles'
 
 // Seeded by db/migrations/V6__seed_dev_roles.sql; all use the password "password".
 const DEV_ACCOUNTS = [
-  { label: 'Admin', email: 'demo@swiftquote.dev' },
+  { label: 'Back Office', email: 'demo@swiftquote.dev' },
   { label: 'WOC', email: 'woc@swiftquote.dev' },
   { label: 'WO', email: 'wo@swiftquote.dev' },
   { label: 'RM', email: 'rm1@swiftquote.dev' },

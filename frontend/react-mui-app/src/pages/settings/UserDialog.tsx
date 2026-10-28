@@ -16,7 +16,7 @@ import { useState } from 'react'
 import { errorText } from '../../api/http'
 import { useAuth } from '../../auth/auth'
 import { ROLE_LABELS } from '../../auth/roles'
-import { adminService } from '../../services/adminService'
+import { settingsService } from '../../services/settingsService'
 import type { AdminUser, Client, Role, Team } from '../../models'
 
 type User = AdminUser
@@ -45,8 +45,8 @@ export function UserDialog(props: { user: User | null; teams: Team[]; clients: C
       clientId: role === 'customer' && clientId ? clientId : null,
     }
     try {
-      if (user) await adminService.updateUser(user.id, { name, role, active, ...placement, password: password || null })
-      else await adminService.createUser({ email, name, password, role, ...placement })
+      if (user) await settingsService.updateUser(user.id, { name, role, active, ...placement, password: password || null })
+      else await settingsService.createUser({ email, name, password, role, ...placement })
       onSaved()
     } catch (err) {
       setError(errorText(err, 'Could not save user'))
