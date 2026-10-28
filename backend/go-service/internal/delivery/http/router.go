@@ -36,6 +36,8 @@ func NewRouter(d Deps) *fiber.App {
 		AllowOrigins: d.CORSOrigins,
 		AllowHeaders: "Authorization, Content-Type",
 		AllowMethods: "GET,POST,PUT,OPTIONS",
+		// Lets browsers read the PDF filename on cross-origin downloads.
+		ExposeHeaders: "Content-Disposition",
 	}))
 
 	// Operational endpoint, intentionally outside /api/v1 and the contract.

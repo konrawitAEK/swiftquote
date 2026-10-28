@@ -199,6 +199,8 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
     origin: d.corsOrigins,
     allowedHeaders: ['Authorization', 'Content-Type'],
     methods: ['GET', 'POST', 'PUT', 'OPTIONS'],
+    // Lets browsers read the PDF filename on cross-origin downloads.
+    exposedHeaders: ['Content-Disposition'],
   })
 
   /** Validates the bearer token and loads the current actor. */

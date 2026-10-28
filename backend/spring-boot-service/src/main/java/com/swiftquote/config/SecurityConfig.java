@@ -86,6 +86,8 @@ public class SecurityConfig {
 		cors.setAllowedOrigins(Arrays.stream(origins.split(",")).map(String::strip).filter((o) -> !o.isEmpty()).toList());
 		cors.setAllowedMethods(List.of("GET", "POST", "PUT", "OPTIONS"));
 		cors.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+		// Lets browsers read the PDF filename on cross-origin downloads.
+		cors.setExposedHeaders(List.of("Content-Disposition"));
 		UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
 		source.registerCorsConfiguration("/**", cors);
 		return source;
