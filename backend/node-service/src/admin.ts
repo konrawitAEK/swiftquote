@@ -12,6 +12,7 @@ import {
   type Actor,
   type Category,
   type Client,
+  type Product,
   type QuoteStatus,
 } from './domain.js'
 import { goQuote } from './gojson.js'
@@ -23,6 +24,7 @@ import {
   type CategoryRow,
   type Measure,
   type MonthRow,
+  type ProductInput,
   type Range,
   type Repository,
   type RmRow,
@@ -62,6 +64,19 @@ async function onInUse(fn: () => Promise<void>, message: string): Promise<void> 
 const USER_HAS_HISTORY = 'user has quote history; deactivate instead'
 const TEAM_HAS_MEMBERS = 'team has members; move them to another team first'
 const CATEGORY_IN_USE = 'category is used on quotes; retire it instead'
+const CATEGORY_HAS_PRODUCTS = 'category is used by products; move them to another category first'
+const PRODUCT_IN_USE = 'product is used on quotes; retire it instead'
+
+/** A create/update product payload as decoded; null means the field was absent. */
+export interface ProductFields {
+  name: string
+  categoryId: string | null
+  unitPrice: Money | null
+  unitCost: Money | null
+  stock: Money | null
+  /** null when absent; create ignores it */
+  active: boolean | null
+}
 
 export class AdminService {
   constructor(private readonly repo: Repository) {}
@@ -167,7 +182,7 @@ export class AdminService {
   }
 }
 
-/** Product categories used to classify quote lines. */
+/** Product categories and the products put on quote lines. */
 export class CatalogService {
   constructor(private readonly repo: Repository) {}
 
@@ -202,7 +217,65 @@ export class CatalogService {
     guard(a)
     if (!(await this.repo.getCategory(a.tenantId, id))) throw notFound('category not found')
     if (await this.repo.categoryInUse(a.tenantId, id)) throw conflict(CATEGORY_IN_USE)
-    await onInUse(() => this.repo.deleteCategory(a.tenantId, id), CATEGORY_IN_USE)
+    if (await this.repo.categoryHasProducts(a.tenantId, id)) throw conflict(CATEGORY_HAS_PRODUCTS)
+    await onInUse(async () => {
+      try {
+        await this.repo.deleteCategory(a.tenantId, id)
+      } catch (err) {
+        // A line or a product added after the checks; report whichever now blocks it, in the same order.
+        if (err instanceof InUseError && !(await this.repo.categoryInUse(a.tenantId, id))) {
+          throw conflict(CATEGORY_HAS_PRODUCTS)
+        }
+        throw err
+      }
+    }, CATEGORY_IN_USE)
+  }
+
+  /** Every product, retired ones included, for everyone but customers. */
+  listProducts(a: Actor): Promise<Product[]> {
+    if (a.role === 'customer') throw roleForbidden()
+    return this.repo.listProducts(a.tenantId)
+  }
+
+  async createProduct(a: Actor, f: ProductFields): Promise<Product> {
+    guard(a)
+    const in_ = await this.checkProduct(a, { ...f, active: true }, false)
+    const id = randomUUID()
+    await onDuplicate(() => this.repo.createProduct(a.tenantId, id, in_), `product ${goQuote(in_.name)} already exists`)
+    return (await this.repo.getProduct(a.tenantId, id))!
+  }
+
+  async updateProduct(a: Actor, id: string, f: ProductFields): Promise<Product> {
+    guard(a)
+    if (!(await this.repo.getProduct(a.tenantId, id))) throw notFound('product not found')
+    const in_ = await this.checkProduct(a, f, true)
+    await onDuplicate(() => this.repo.updateProduct(a.tenantId, id, in_), `product ${goQuote(in_.name)} already exists`)
+    return (await this.repo.getProduct(a.tenantId, id))!
+  }
+
+  async deleteProduct(a: Actor, id: string): Promise<void> {
+    guard(a)
+    if (!(await this.repo.getProduct(a.tenantId, id))) throw notFound('product not found')
+    if (await this.repo.productInUse(a.tenantId, id)) throw conflict(PRODUCT_IN_USE)
+    await onInUse(() => this.repo.deleteProduct(a.tenantId, id), PRODUCT_IN_USE)
+  }
+
+  /** Required fields and signs, then the category. */
+  private async checkProduct(a: Actor, f: ProductFields, update: boolean): Promise<ProductInput> {
+    const name = f.name.trim()
+    const p = new Problems()
+    if (name === '') p.add('name is required')
+    if (f.categoryId === null) p.add('categoryId is required')
+    if (f.unitPrice === null) p.add('unitPrice is required')
+    if (f.unitCost === null) p.add('unitCost is required')
+    if (f.unitPrice?.isNegative()) p.add('unitPrice must not be negative')
+    if (f.unitCost?.isNegative()) p.add('unitCost must not be negative')
+    if (f.stock?.isNegative()) p.add('stock must not be negative')
+    if (update && f.active === null) p.add('active is required')
+    p.check()
+    const category = await this.repo.getCategory(a.tenantId, f.categoryId!)
+    if (!category?.active) throw invalid('categoryId is not an active category')
+    return { name, categoryId: f.categoryId!, unitPrice: f.unitPrice!, unitCost: f.unitCost!, stock: f.stock, active: f.active! }
   }
 }
 

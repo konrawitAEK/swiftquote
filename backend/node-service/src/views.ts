@@ -1,10 +1,42 @@
 // Wire shapes, field for field with contracts/openapi.yaml and the Go service's dto.go (including null vs absent).
 import type { AdminUser, CategoryRow, Measure, PublicView, QuoteSummary, Team } from './repository.js'
 import type { DashboardSummary } from './admin.js'
-import type { Category, Client, Quote, QuoteItem, Ref } from './domain.js'
+import type { Category, Client, Product, Quote, QuoteItem, Ref } from './domain.js'
 import { fixed, money } from './json.js'
+import { grossOf, lineCost, quoteCost, type LineCost } from './pricing.js'
+import type { Money } from './pricing.js'
 
 const refView = (r: Ref | null) => (r === null ? null : { id: r.id, name: r.name })
+const optMoney = (d: Money | null) => (d === null ? null : money(d))
+
+/**
+ * Who a quote is rendered for. Cost and profit are omitted (absent, not null) for customers and the share link.
+ */
+export type Audience = 'internal' | 'customer'
+
+export function audienceOf(role: string): Audience {
+  return role === 'customer' ? 'customer' : 'internal'
+}
+
+const costFields = (c: LineCost) => ({ costTotal: optMoney(c.costTotal), profit: optMoney(c.profit) })
+
+/** A line's cost and profit. */
+export const itemCost = (it: QuoteItem): LineCost => lineCost(it.quantity, it.unitCost, it.lineTotal)
+
+/** The line's discount in money: the gross amount less the stored line total. */
+export const itemDiscount = (it: QuoteItem): Money => grossOf(it.quantity, it.unitPrice).sub(it.lineTotal)
+
+export function productView(p: Product) {
+  return {
+    id: p.id,
+    name: p.name,
+    category: refView(p.category),
+    unitPrice: money(p.unitPrice),
+    unitCost: money(p.unitCost),
+    stock: optMoney(p.stock),
+    active: p.active,
+  }
+}
 
 export function clientView(c: Client) {
   return { id: c.id, name: c.name, email: c.email === '' ? null : c.email }
@@ -26,20 +58,24 @@ export function quoteSummary(s: QuoteSummary) {
   }
 }
 
-function itemViews(items: QuoteItem[]) {
+function itemViews(items: QuoteItem[], audience: Audience) {
   return items.map((it) => ({
+    product: refView(it.product),
     title: it.title,
     category: refView(it.category),
     description: it.description === '' ? null : it.description,
     quantity: money(it.quantity),
     unitPrice: money(it.unitPrice),
-    discountPercent: money(it.discountPercent),
+    discountType: it.discountType,
+    discountValue: money(it.discountValue),
+    discountAmount: money(itemDiscount(it)),
     taxPercent: money(it.taxPercent),
     lineTotal: money(it.lineTotal),
+    ...(audience === 'internal' ? { unitCost: optMoney(it.unitCost), ...costFields(itemCost(it)) } : {}),
   }))
 }
 
-export function quoteDetail(q: Quote) {
+export function quoteDetail(q: Quote, audience: Audience) {
   return {
     id: q.id,
     quoteNumber: q.quoteNumber,
@@ -52,10 +88,11 @@ export function quoteDetail(q: Quote) {
     discountAmount: money(q.discountAmount),
     taxAmount: money(q.taxAmount),
     grandTotal: money(q.grandTotal),
+    ...(audience === 'internal' ? costFields(quoteCost(q.items.map(itemCost))) : {}),
     accessToken: q.accessToken,
     signedBy: q.signedBy,
     signedAt: q.signedAt,
-    items: itemViews(q.items),
+    items: itemViews(q.items, audience),
     history: q.history.map((e) => ({ action: e.action, actor: refView(e.actor), comment: e.comment, at: e.at })),
   }
 }
@@ -71,7 +108,7 @@ export function publicView(v: PublicView) {
     vendorName: v.vendorName,
     vendorLogo: null,
     grandTotal: money(q.grandTotal),
-    items: itemViews(q.items),
+    items: itemViews(q.items, 'customer'),
   }
 }
 

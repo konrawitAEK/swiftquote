@@ -55,17 +55,30 @@ export interface QuoteEvent {
   at: string
 }
 
+export const DISCOUNT_TYPES = ['percent', 'amount'] as const
+export type DiscountType = (typeof DISCOUNT_TYPES)[number]
+
+export function isDiscountType(s: string): s is DiscountType {
+  return (DISCOUNT_TYPES as readonly string[]).includes(s)
+}
+
 export interface QuoteItem {
   id: string
+  /** null for lines created before products existed */
+  product: Ref | null
   title: string
   /** null for lines created before categories existed */
   category: Ref | null
   description: string
   quantity: Money
   unitPrice: Money
-  discountPercent: Money
+  discountType: DiscountType
+  /** a percent or an amount for the whole line, per discountType */
+  discountValue: Money
   taxPercent: Money
   lineTotal: Money
+  /** the product's cost when the line was saved; null for older lines */
+  unitCost: Money | null
 }
 
 export interface Quote {
@@ -83,6 +96,8 @@ export interface Quote {
   taxAmount: Money
   grandTotal: Money
   accessToken: string
+  /** RFC 3339 */
+  createdAt: string
   signedBy: string | null
   signatureData: string | null
   signedAt: string | null
@@ -96,6 +111,17 @@ export interface Quote {
 export interface Category {
   id: string
   name: string
+  active: boolean
+}
+
+/** A catalog product; stock null means not tracked. */
+export interface Product {
+  id: string
+  name: string
+  category: Ref
+  unitPrice: Money
+  unitCost: Money
+  stock: Money | null
   active: boolean
 }
 
