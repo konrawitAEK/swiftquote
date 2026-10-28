@@ -19,13 +19,11 @@ import {
   Typography,
 } from '@mui/material'
 import NextLink from 'next/link'
-import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
+import { useOptimistic, useTransition } from 'react'
 import { StatusChip } from '@/components/StatusChip'
-import { errorText, isNetworkError } from '@/lib/api/types'
 import { STATUS_LABELS } from '@/lib/auth/roles'
 import { formatMoney } from '@/lib/pricing/pricing'
-import { quotesService } from '@/services/quotesService'
 import type { QuoteStatus, QuoteSummary, Role } from '@/models'
 
 const STATUSES: QuoteStatus[] = ['draft', 'pending_approval', 'approved', 'sent', 'viewed', 'accepted', 'rejected']
@@ -39,31 +37,23 @@ const TITLES: Record<Role, string> = {
   admin: 'Quotations',
 }
 
-export function QuotesList({ role }: { role: Role }) {
+/** Client Component over the server-fetched list; the status filter goes to the URL (?status=) so the server refetches. */
+export function QuotesList(props: { role: Role; quotes: QuoteSummary[] | null; error: string | null; status: QuoteStatus | '' }) {
+  const { role, quotes, error } = props
   const showCreator = role === 'wo' || role === 'woc'
-  const [status, setStatus] = useState<QuoteStatus | ''>('')
-  const [quotes, setQuotes] = useState<QuoteSummary[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [pending, startTransition] = useTransition()
   const router = useRouter()
+  const pathname = usePathname()
 
-  useEffect(() => {
-    let cancelled = false
-    quotesService
-      .list(status || undefined)
-      .then((data) => {
-        if (cancelled) return
-        setQuotes(data)
-        setError(null)
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return
-        if (!isNetworkError(e)) setQuotes([])
-        setError(errorText(e, 'Could not load quotes'))
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [status])
+  // Shows the new filter at once while the server renders the filtered list.
+  const [status, setOptimisticStatus] = useOptimistic(props.status)
+
+  const setStatus = (next: QuoteStatus | '') => {
+    startTransition(() => {
+      setOptimisticStatus(next)
+      router.push(next ? `${pathname}?status=${next}` : pathname, { scroll: false })
+    })
+  }
 
   return (
     <Stack spacing={3}>
@@ -77,10 +67,7 @@ export function QuotesList({ role }: { role: Role }) {
             size="small"
             label="Status"
             value={status}
-            onChange={(e) => {
-              setQuotes(null)
-              setStatus(e.target.value as QuoteStatus | '')
-            }}
+            onChange={(e) => setStatus(e.target.value as QuoteStatus | '')}
             sx={{ minWidth: 140 }}
           >
             <MenuItem value="">All</MenuItem>
@@ -101,7 +88,7 @@ export function QuotesList({ role }: { role: Role }) {
       {error && <Alert severity="error">{error}</Alert>}
 
       <Card>
-        {quotes === null && !error && <LinearProgress />}
+        {pending && <LinearProgress />}
         <TableContainer>
           <Table>
             <TableHead>
@@ -115,7 +102,7 @@ export function QuotesList({ role }: { role: Role }) {
               </TableRow>
             </TableHead>
             <TableBody>
-              {quotes?.map((q) => (
+              {!pending && quotes?.map((q) => (
                 <TableRow key={q.id} hover onClick={() => router.push(`/quotes/${q.id}`)} sx={{ cursor: 'pointer' }}>
                   <TableCell sx={{ fontWeight: 500 }}>
                     <Box
@@ -138,7 +125,7 @@ export function QuotesList({ role }: { role: Role }) {
                   </TableCell>
                 </TableRow>
               ))}
-              {quotes?.length === 0 && (
+              {!pending && quotes?.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={showCreator ? 6 : 5}>
                     <Box sx={{ py: 4, textAlign: 'center', color: 'text.secondary' }}>

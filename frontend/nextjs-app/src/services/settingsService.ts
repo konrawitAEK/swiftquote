@@ -1,3 +1,4 @@
+import type { AxiosInstance } from 'axios'
 import { http } from '@/lib/api/http'
 import type {
   AdminUser,
@@ -19,21 +20,21 @@ export type DeleteKind = 'user' | 'team' | 'category' | 'product'
 
 const DELETE_PATHS: Record<DeleteKind, string> = { user: 'users', team: 'teams', category: 'categories', product: 'products' }
 
-async function get<T>(url: string): Promise<T> {
-  const { data } = await http.get<T>(url)
+async function get<T>(api: AxiosInstance, url: string): Promise<T> {
+  const { data } = await api.get<T>(url)
   return data
 }
 
-/** Back Office settings (role admin). */
+/** Back Office settings (role admin). loadAll() runs on the server (pass serverApi()); the dialogs' writes run in the browser. */
 export const settingsService = {
   /** Everything the console shows; on failure, rejects with the first failing call's error (users, teams, clients, categories, products). */
-  async loadAll(): Promise<SettingsData> {
+  async loadAll(api: AxiosInstance = http): Promise<SettingsData> {
     // Started together; awaited in order so the first failing call's error wins.
-    const users = get<AdminUser[]>('/admin/users')
-    const teams = get<Team[]>('/admin/teams')
-    const clients = get<Client[]>('/clients')
-    const categories = get<ProductCategory[]>('/categories')
-    const products = get<Product[]>('/products')
+    const users = get<AdminUser[]>(api, '/admin/users')
+    const teams = get<Team[]>(api, '/admin/teams')
+    const clients = get<Client[]>(api, '/clients')
+    const categories = get<ProductCategory[]>(api, '/categories')
+    const products = get<Product[]>(api, '/products')
     for (const p of [users, teams, clients, categories, products]) p.catch(() => {}) // no unhandled rejections
     return {
       users: await users,

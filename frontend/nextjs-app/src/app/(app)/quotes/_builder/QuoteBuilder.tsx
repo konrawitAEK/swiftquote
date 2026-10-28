@@ -3,14 +3,13 @@
 import { Alert, Box, Button, Card, CardContent, Divider, LinearProgress, MenuItem, Stack, TextField, Typography } from '@mui/material'
 import NextLink from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from 'react'
+import { useMemo, useState, useSyncExternalStore, type FormEvent } from 'react'
 import { TotalRow } from '@/components/TotalRow'
-import { errorText } from '@/lib/api/types'
 import { calculate, formatMoney, formatOptionalMoney, toDecimal } from '@/lib/pricing/pricing'
 import { LineItems, newLine, type Line } from './LineItems'
 import { splitLineErrors } from './lineErrors'
 import { quoteBuilderService } from '@/services/quoteBuilderService'
-import type { Client, CreateQuoteRequest, Product } from '@/models'
+import type { Client, CreateQuoteRequest, Product, QuoteDetail } from '@/models'
 
 /** YYYY-MM-DD in the user's local time zone. */
 function isoDate(d: Date): string {
@@ -24,76 +23,53 @@ function defaultQuoteNumber(): string {
 
 const noSubscribe = () => () => {}
 
-/**
- * Creates a draft (/quotes/new) or edits one (/quotes/[id]/edit). Only RMs reach this page.
- * Rendered in the browser only: the defaults depend on the user's clock and time zone.
- */
-export function QuoteBuilder({ id }: { id?: string }) {
-  const inBrowser = useSyncExternalStore(noSubscribe, () => true, () => false)
-  return inBrowser ? <BuilderForm id={id} /> : <LinearProgress />
+/** What the page's Server Component fetched: quote is the draft when editing; error is the first failed read. */
+export interface BuilderData {
+  clients: Client[]
+  products: Product[]
+  quote: QuoteDetail | null
+  error: string | null
 }
 
-function BuilderForm({ id }: { id?: string }) {
+/** The saved lines as editable form rows. */
+function toLines(quote: QuoteDetail): Line[] {
+  return quote.items.map((it) =>
+    newLine({
+      productId: it.product?.id ?? '',
+      title: it.title,
+      description: it.description ?? '',
+      quantity: String(it.quantity),
+      unitPrice: String(it.unitPrice),
+      discountType: it.discountType,
+      discountValue: String(it.discountValue),
+      taxPercent: String(it.taxPercent),
+    }),
+  )
+}
+
+/**
+ * Creates a draft (/quotes/new) or edits one (/quotes/[id]/edit). Only RMs reach this page.
+ * The data comes from the server; the form renders in the browser only: the defaults depend on the user's clock and time zone.
+ */
+export function QuoteBuilder({ id, data }: { id?: string; data: BuilderData }) {
+  const inBrowser = useSyncExternalStore(noSubscribe, () => true, () => false)
+  return inBrowser ? <BuilderForm id={id} data={data} /> : <LinearProgress />
+}
+
+function BuilderForm({ id, data }: { id?: string; data: BuilderData }) {
   const editing = id !== undefined
+  const { clients, products, quote } = data
   const router = useRouter()
-  const [clients, setClients] = useState<Client[]>([])
-  const [products, setProducts] = useState<Product[]>([])
-  const [clientId, setClientId] = useState('')
-  const [quoteNumber, setQuoteNumber] = useState(defaultQuoteNumber)
+  const [clientId, setClientId] = useState(() => quote?.clientId ?? (!editing && clients.length === 1 ? clients[0].id : ''))
+  const [quoteNumber, setQuoteNumber] = useState(() => quote?.quoteNumber ?? defaultQuoteNumber())
   const [today] = useState(() => isoDate(new Date()))
-  const [expiryDate, setExpiryDate] = useState(() => isoDate(new Date(Date.now() + 30 * 864e5)))
-  const [lines, setLines] = useState<Line[]>(() => [newLine()])
-  const [error, setError] = useState<string | null>(null)
+  const [expiryDate, setExpiryDate] = useState(() => quote?.expiryDate ?? isoDate(new Date(Date.now() + 30 * 864e5)))
+  const [lines, setLines] = useState<Line[]>(() => (quote ? toLines(quote) : [newLine()]))
+  const [error, setError] = useState<string | null>(data.error)
   // Keyed by Line.key so the messages stay on the right row when lines are removed.
   const [lineErrors, setLineErrors] = useState<Record<number, string[]>>({})
   const [busy, setBusy] = useState(false)
-  const [loading, setLoading] = useState(editing)
-  const [locked, setLocked] = useState<string | null>(null)
-
-  useEffect(() => {
-    quoteBuilderService
-      .listProducts()
-      .then(setProducts)
-      .catch((e: unknown) => setError(errorText(e, 'Could not load products')))
-    quoteBuilderService
-      .listClients()
-      .then((data) => {
-        setClients(data)
-        if (!editing && data.length === 1) setClientId(data[0].id)
-      })
-      .catch((e: unknown) => setError(errorText(e, 'Could not load clients')))
-  }, [editing])
-
-  useEffect(() => {
-    if (!id) return
-    quoteBuilderService.get(id).then(
-      (data) => {
-        setLoading(false)
-        if (data.status !== 'draft') setLocked(`This quotation is ${data.status.replace('_', ' ')} and can no longer be edited.`)
-        setClientId(data.clientId)
-        setQuoteNumber(data.quoteNumber)
-        setExpiryDate(data.expiryDate)
-        setLines(
-          data.items.map((it) =>
-            newLine({
-              productId: it.product?.id ?? '',
-              title: it.title,
-              description: it.description ?? '',
-              quantity: String(it.quantity),
-              unitPrice: String(it.unitPrice),
-              discountType: it.discountType,
-              discountValue: String(it.discountValue),
-              taxPercent: String(it.taxPercent),
-            }),
-          ),
-        )
-      },
-      (e: unknown) => {
-        setLoading(false)
-        setError(errorText(e, 'Could not load quotation'))
-      },
-    )
-  }, [id])
+  const locked = quote && quote.status !== 'draft' ? `This quotation is ${quote.status.replace('_', ' ')} and can no longer be edited.` : null
 
   // Live preview with the same rounding rules as the server (contracts/fixtures/pricing-cases.json).
   // Cost is the product's current cost, which the server stores on the line when the draft is saved.
@@ -150,8 +126,6 @@ function BuilderForm({ id }: { id?: string }) {
       setBusy(false)
     }
   }
-
-  if (loading) return <LinearProgress />
 
   return (
     <Box component="form" onSubmit={submit}>

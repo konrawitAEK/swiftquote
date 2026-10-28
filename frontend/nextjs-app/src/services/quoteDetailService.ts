@@ -1,3 +1,4 @@
+import type { AxiosInstance } from 'axios'
 import { http } from '@/lib/api/http'
 import { toPdfFile, withJsonErrorBody, type PdfFile } from '@/lib/api/pdf'
 import type { AcceptQuoteRequest, CommentRequest, QuoteDetail } from '@/models'
@@ -12,9 +13,11 @@ async function transition(id: string, action: 'submit' | 'approve' | 'return' | 
   return data
 }
 
+/** get() runs on the server (pass serverApi()); the workflow calls and the PDF run in the browser. */
 export const quoteDetailService = {
-  async get(id: string): Promise<QuoteDetail> {
-    const { data } = await http.get<QuoteDetail>(quotePath(id))
+  /** The quote with its lines and history. */
+  async get(id: string, api: AxiosInstance = http): Promise<QuoteDetail> {
+    const { data } = await api.get<QuoteDetail>(quotePath(id))
     return data
   },
   submit: (id: string, comment: Comment) => transition(id, 'submit', comment),
