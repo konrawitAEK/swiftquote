@@ -432,6 +432,8 @@ paths:
         "Sent" counts quotes in sent, viewed, accepted or rejected. conversionRate = won.count / sentCount
         rounded half-up to 4 decimals (0 when nothing was sent). Amounts are grand totals incl. VAT;
         category amounts are line total plus that line's VAT, so categories add up to grand totals.
+        Every Measure also carries cost and profit (before VAT, from the lines that have a cost); a
+        category's cost and profit come from its own lines only.
       operationId: getDashboardSummary
       tags: [Dashboard]
       security:
@@ -1239,10 +1241,20 @@ components:
 
     Measure:
       type: object
-      required: [count, amount]
+      required: [count, amount, cost, profit]
       properties:
         count: { type: integer }
         amount: { type: number }
+        cost:
+          type: number
+          description: >-
+            Sum of line costTotal (round(quantity * unitCost)) over the measured quotes' lines that have a cost.
+            Lines without one (created before products existed) are left out of both cost and profit. Before VAT.
+        profit:
+          type: number
+          description: >-
+            Sum of line profit (lineTotal - costTotal) over the same lines, before VAT. The margin over those
+            lines is profit / (cost + profit).
 
     DashboardSummary:
       type: object

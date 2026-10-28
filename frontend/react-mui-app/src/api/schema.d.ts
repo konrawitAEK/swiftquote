@@ -267,7 +267,7 @@ export interface paths {
         };
         /**
          * Sales summary (woc)
-         * @description Covers quotes whose creation date (UTC) is within [from, to], both optional and inclusive. Three measures are reported side by side so the client can switch views without refetching: won = accepted; pending = sent or viewed and not yet expired (waiting on the customer); inApproval = pending_approval or approved (not yet with the customer). "Sent" counts quotes in sent, viewed, accepted or rejected. conversionRate = won.count / sentCount rounded half-up to 4 decimals (0 when nothing was sent). Amounts are grand totals incl. VAT; category amounts are line total plus that line's VAT, so categories add up to grand totals.
+         * @description Covers quotes whose creation date (UTC) is within [from, to], both optional and inclusive. Three measures are reported side by side so the client can switch views without refetching: won = accepted; pending = sent or viewed and not yet expired (waiting on the customer); inApproval = pending_approval or approved (not yet with the customer). "Sent" counts quotes in sent, viewed, accepted or rejected. conversionRate = won.count / sentCount rounded half-up to 4 decimals (0 when nothing was sent). Amounts are grand totals incl. VAT; category amounts are line total plus that line's VAT, so categories add up to grand totals. Every Measure also carries cost and profit (before VAT, from the lines that have a cost); a category's cost and profit come from its own lines only.
          */
         get: operations["getDashboardSummary"];
         put?: never;
@@ -812,6 +812,10 @@ export interface components {
         Measure: {
             count: number;
             amount: number;
+            /** @description Sum of line costTotal (round(quantity * unitCost)) over the measured quotes' lines that have a cost. Lines without one (created before products existed) are left out of both cost and profit. Before VAT. */
+            cost: number;
+            /** @description Sum of line profit (lineTotal - costTotal) over the same lines, before VAT. The margin over those lines is profit / (cost + profit). */
+            profit: number;
         };
         DashboardSummary: {
             /** Format: date */
