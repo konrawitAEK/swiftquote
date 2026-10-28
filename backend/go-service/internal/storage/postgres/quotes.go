@@ -259,6 +259,19 @@ func (s *Store) Accept(ctx context.Context, id uuid.UUID, from []domain.QuoteSta
 // deductStock takes each use from its product's stock with a guarded update, in order; untracked products are
 // skipped. The first product without enough stock aborts the transaction with *quote.StockShortage.
 func deductStock(ctx context.Context, tx pgx.Tx, uses []quote.StockUse) error {
+	if len(uses) == 0 {
+		return nil
+	}
+	// Lock the rows in id order first so two accepts sharing products can't deadlock; the checks below still run
+	// in line order, which decides which product a 409 names.
+	ids := make([]string, len(uses))
+	for i, u := range uses {
+		ids[i] = u.ProductID.String()
+	}
+	if _, err := tx.Exec(ctx, `
+		SELECT id FROM products WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`, ids); err != nil {
+		return fmt.Errorf("lock products: %w", err)
+	}
 	for _, u := range uses {
 		tag, err := tx.Exec(ctx, `
 			UPDATE products SET stock = stock - $2 WHERE id = $1 AND stock IS NOT NULL AND stock >= $2`,
