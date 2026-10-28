@@ -23,8 +23,9 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useState } from 'react'
 import NextLink from 'next/link'
+import { useRouter } from 'next/navigation'
+import { useState, useTransition } from 'react'
 import { DownloadPdfButton } from '@/components/DownloadPdfButton'
 import { StatusChip } from '@/components/StatusChip'
 import { TotalRow } from '@/components/TotalRow'
@@ -67,46 +68,40 @@ function availableActions(role: Role, q: Quote) {
   }
 }
 
-export function QuoteDetail({ id, role }: { id: string; role: Role }) {
-  const [quote, setQuote] = useState<Quote | null>(null)
-  const [error, setError] = useState<string | null>(null)
+/**
+ * Client Component over the server-fetched quote. Workflow actions call the API from the browser, then
+ * router.refresh() re-renders the page on the server with the updated quote.
+ */
+export function QuoteDetail({ id, role, quote, error }: { id: string; role: Role; quote: Quote | null; error: string | null }) {
   const [actionError, setActionError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [busy, startTransition] = useTransition()
   const [dialog, setDialog] = useState<DialogSpec | null>(null)
   const [comment, setComment] = useState('')
+  const router = useRouter()
 
-  useEffect(() => {
-    let cancelled = false
-    quoteDetailService
-      .get(id)
-      .then((data) => !cancelled && setQuote(data))
-      .catch((e: unknown) => !cancelled && setError(errorText(e, 'Could not load quotation')))
-    return () => {
-      cancelled = true
-    }
-  }, [id])
-
-  /** Runs a workflow call and shows the updated quote or the server's error. */
-  const run = useCallback(async (call: () => Promise<Quote>) => {
-    setBusy(true)
+  /** Runs a workflow call, then shows the refreshed quote or the server's error; busy until the refresh lands. */
+  const run = (call: () => Promise<Quote>) => {
     setActionError(null)
-    try {
-      const data = await call()
-      setQuote(data)
-      setDialog(null)
-      setComment('')
-    } catch (e) {
-      setActionError(errorText(e, 'Action failed'))
-    } finally {
-      setBusy(false)
-    }
-  }, [])
+    startTransition(async () => {
+      try {
+        await call()
+      } catch (e) {
+        startTransition(() => setActionError(errorText(e, 'Action failed')))
+        return
+      }
+      startTransition(() => {
+        setDialog(null)
+        setComment('')
+        router.refresh()
+      })
+    })
+  }
 
   const confirmDialog = () => {
     if (!dialog) return
     const { action } = dialog
     const text = comment.trim() || null
-    void run(() => quoteDetailService[action](id, text))
+    run(() => quoteDetailService[action](id, text))
   }
 
   if (error) return <Alert severity="error">{error}</Alert>

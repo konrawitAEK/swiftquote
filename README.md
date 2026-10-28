@@ -76,7 +76,7 @@ service under one shared `services/` folder (one service per page, e.g. `quoteDe
 | App | HTTP client | Services |
 |---|---|---|
 | React | axios (`src/api/http.ts`: base URL, Bearer token, 401 → logout) | `src/services/*Service.ts` |
-| Next.js | axios in the browser (`src/lib/api/http.ts`) and on the server (`src/lib/api/server.ts`, session cookie) | `src/services/*Service.ts` |
+| Next.js | axios in the browser (`src/lib/api/http.ts`) and on the server (`src/lib/api/server.ts`, session cookie) | `src/services/*Service.ts` (reads take the server instance from the page) |
 | Angular | `HttpClient` returning Observables (auth interceptor in `core/`) | `src/app/services/*.service.ts` |
 
 ```bash
@@ -91,10 +91,19 @@ dev server on the host:
 | App | Folder | Dev server | Notes |
 |---|---|---|---|
 | React | `frontend/react-mui-app` | `npm run dev` → :3000 | Vite SPA |
-| Next.js | `frontend/nextjs-app` | `npm run dev` → :3001 | Dashboard is a Server Component (fetches with the session cookie) |
+| Next.js | `frontend/nextjs-app` | `npm run dev` → :3001 | Signed-in pages render their data on the server (see below) |
 | Angular | `frontend/angular-app` | `npm start` → :3002 | Standalone + Signals; the Angular CLI needs Node ≥ 22.22.3 (or 24.15+) |
 
 Run `npm ci` in the folder first.
+
+In the Next.js app every signed-in page (dashboard, quotes list, quote detail, new/edit quote, settings) is a
+Server Component that fetches its data with the session cookie (`serverApi()`, which uses `API_INTERNAL_URL`
+inside Docker) and hands it to a Client Component. Filters live in the URL (`?from=&to=` on the dashboard,
+`?status=` on the quotes list), so changing one is a server round-trip. Writes (workflow actions, saving a quote,
+the settings dialogs) still call the API from the browser and then `router.refresh()` re-renders the page.
+The public quote page `/p/[accessToken]` stays client-side on purpose: its first GET marks the quote "viewed",
+and link-preview bots (Slack, LINE) fetch the HTML without running JS, so server rendering would mark quotes
+viewed that no customer opened.
 
 Data shapes live in a `models/` folder (`src/models`, Angular `src/app/models`): one file per area
 (`common`, `auth`, `catalog`, `quote`, `dashboard`, `admin`) with interfaces such as

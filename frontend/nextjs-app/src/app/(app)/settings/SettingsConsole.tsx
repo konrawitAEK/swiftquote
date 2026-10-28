@@ -18,13 +18,14 @@ import {
   Tabs,
   Typography,
 } from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useState } from 'react'
 import { errorText } from '@/lib/api/types'
-import type { AdminUser as User, Client, Product, ProductCategory as Category, Team } from '@/models'
+import type { AdminUser as User, Product, ProductCategory as Category, Team } from '@/models'
 import { useAuth } from '@/components/AuthProvider'
 import { ROLE_LABELS } from '@/lib/auth/roles'
 import { formatMoney, formatQuantity } from '@/lib/pricing/pricing'
-import { settingsService } from '@/services/settingsService'
+import { settingsService, type SettingsData } from '@/services/settingsService'
 import { CategoryDialog } from './CategoryDialog'
 import { DeleteDialog, type DeleteTarget } from './DeleteDialog'
 import { ProductDialog } from './ProductDialog'
@@ -33,47 +34,30 @@ import { UserDialog } from './UserDialog'
 
 const ADD_LABELS = ['Add user', 'Add team', 'Add category', 'Add product']
 
-/** Back Office settings: people, team structure, product categories and products. */
-export function SettingsConsole() {
+/**
+ * Back Office settings: people, team structure, product categories and products. The data comes from the
+ * page's Server Component; after a save the dialogs call the API from the browser and router.refresh() refetches.
+ */
+export function SettingsConsole({ data, error: loadError }: { data: SettingsData | null; error: string | null }) {
   const [tab, setTab] = useState(0)
-  const [users, setUsers] = useState<User[] | null>(null)
-  const [teams, setTeams] = useState<Team[]>([])
-  const [clients, setClients] = useState<Client[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
+  const users = data?.users ?? null
+  const { teams, clients, categories, products } = data ?? { teams: [], clients: [], categories: [], products: [] }
   const [editingCategory, setEditingCategory] = useState<Category | 'new' | null>(null)
-  const [products, setProducts] = useState<Product[]>([])
   const [editingProduct, setEditingProduct] = useState<Product | 'new' | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const error = actionError ?? loadError
   const [editingUser, setEditingUser] = useState<User | 'new' | null>(null)
   const [editingTeam, setEditingTeam] = useState<Team | 'new' | null>(null)
   const [deleting, setDeleting] = useState<DeleteTarget | null>(null)
   const meId = useAuth().user?.id
 
-  // Bumped after every save to refetch.
-  const [version, setVersion] = useState(0)
-  const reload = () => setVersion((v) => v + 1)
-
-  useEffect(() => {
-    let cancelled = false
-    settingsService
-      .loadAll()
-      .then((data) => {
-        if (cancelled) return
-        setUsers(data.users)
-        setTeams(data.teams)
-        setClients(data.clients)
-        setCategories(data.categories)
-        setProducts(data.products)
-      })
-      .catch((e: unknown) => !cancelled && setError(errorText(e, 'Could not load')))
-    return () => {
-      cancelled = true
-    }
-  }, [version])
+  // After every save: re-render the page on the server with fresh data.
+  const router = useRouter()
+  const reload = () => router.refresh()
 
   /** Retire or reactivate in place; the API takes the whole product on update. */
   const toggleActive = async (p: Product) => {
-    setError(null)
+    setActionError(null)
     try {
       await settingsService.updateProduct(p.id, {
         name: p.name,
@@ -85,7 +69,7 @@ export function SettingsConsole() {
       })
       reload()
     } catch (e) {
-      setError(errorText(e, `Could not ${p.active ? 'retire' : 'reactivate'} ${p.name}`))
+      setActionError(errorText(e, `Could not ${p.active ? 'retire' : 'reactivate'} ${p.name}`))
     }
   }
 
