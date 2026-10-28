@@ -1,21 +1,31 @@
 {
   "rules": [
     "gross = round(quantity * unitPrice)",
-    "discount = round(gross * discountPercent / 100)",
+    "discount = round(gross * discountValue / 100) when discountType is percent (the default), round(discountValue) when it is amount",
     "lineTotal = gross - discount",
     "tax = round(lineTotal * taxPercent / 100)",
     "subtotal = sum(gross); discountAmount = sum(discount); taxAmount = sum(tax)",
     "grandTotal = subtotal - discountAmount + taxAmount",
+    "costTotal (line) = round(quantity * unitCost); profit (line) = lineTotal - costTotal",
+    "costTotal / profit (quote) = sums of the lines; only checked when every item has unitCost",
     "round = 2 decimal places, half away from zero (Java RoundingMode.HALF_UP), applied per line"
   ],
   "cases": [
     {
       "name": "single line with discount",
       "items": [
-        { "quantity": "2", "unitPrice": "100.00", "discountPercent": "10", "taxPercent": "7" }
+        {
+          "quantity": "2",
+          "unitPrice": "100.00",
+          "taxPercent": "7",
+          "discountType": "percent",
+          "discountValue": "10"
+        }
       ],
       "expected": {
-        "lineTotals": ["180.00"],
+        "lineTotals": [
+          "180.00"
+        ],
         "subtotal": "200.00",
         "discountAmount": "20.00",
         "taxAmount": "12.60",
@@ -25,10 +35,18 @@
     {
       "name": "no discount",
       "items": [
-        { "quantity": "1", "unitPrice": "1000.00", "discountPercent": "0", "taxPercent": "7" }
+        {
+          "quantity": "1",
+          "unitPrice": "1000.00",
+          "taxPercent": "7",
+          "discountType": "percent",
+          "discountValue": "0"
+        }
       ],
       "expected": {
-        "lineTotals": ["1000.00"],
+        "lineTotals": [
+          "1000.00"
+        ],
         "subtotal": "1000.00",
         "discountAmount": "0.00",
         "taxAmount": "70.00",
@@ -38,10 +56,18 @@
     {
       "name": "tax rounds half up, not half even",
       "items": [
-        { "quantity": "1", "unitPrice": "1.50", "discountPercent": "0", "taxPercent": "7" }
+        {
+          "quantity": "1",
+          "unitPrice": "1.50",
+          "taxPercent": "7",
+          "discountType": "percent",
+          "discountValue": "0"
+        }
       ],
       "expected": {
-        "lineTotals": ["1.50"],
+        "lineTotals": [
+          "1.50"
+        ],
         "subtotal": "1.50",
         "discountAmount": "0.00",
         "taxAmount": "0.11",
@@ -51,10 +77,18 @@
     {
       "name": "discount rounding",
       "items": [
-        { "quantity": "3", "unitPrice": "33.33", "discountPercent": "15", "taxPercent": "7" }
+        {
+          "quantity": "3",
+          "unitPrice": "33.33",
+          "taxPercent": "7",
+          "discountType": "percent",
+          "discountValue": "15"
+        }
       ],
       "expected": {
-        "lineTotals": ["84.99"],
+        "lineTotals": [
+          "84.99"
+        ],
         "subtotal": "99.99",
         "discountAmount": "15.00",
         "taxAmount": "5.95",
@@ -64,10 +98,18 @@
     {
       "name": "fractional quantity rounds gross",
       "items": [
-        { "quantity": "2.5", "unitPrice": "19.99", "discountPercent": "0", "taxPercent": "7" }
+        {
+          "quantity": "2.5",
+          "unitPrice": "19.99",
+          "taxPercent": "7",
+          "discountType": "percent",
+          "discountValue": "0"
+        }
       ],
       "expected": {
-        "lineTotals": ["49.98"],
+        "lineTotals": [
+          "49.98"
+        ],
         "subtotal": "49.98",
         "discountAmount": "0.00",
         "taxAmount": "3.50",
@@ -77,10 +119,18 @@
     {
       "name": "full discount",
       "items": [
-        { "quantity": "1", "unitPrice": "500.00", "discountPercent": "100", "taxPercent": "7" }
+        {
+          "quantity": "1",
+          "unitPrice": "500.00",
+          "taxPercent": "7",
+          "discountType": "percent",
+          "discountValue": "100"
+        }
       ],
       "expected": {
-        "lineTotals": ["0.00"],
+        "lineTotals": [
+          "0.00"
+        ],
         "subtotal": "500.00",
         "discountAmount": "500.00",
         "taxAmount": "0.00",
@@ -90,16 +140,165 @@
     {
       "name": "multiple lines with mixed tax rates",
       "items": [
-        { "quantity": "2", "unitPrice": "100.00", "discountPercent": "10", "taxPercent": "7" },
-        { "quantity": "1", "unitPrice": "1.50", "discountPercent": "0", "taxPercent": "7" },
-        { "quantity": "5", "unitPrice": "20.00", "discountPercent": "0", "taxPercent": "0" }
+        {
+          "quantity": "2",
+          "unitPrice": "100.00",
+          "taxPercent": "7",
+          "discountType": "percent",
+          "discountValue": "10"
+        },
+        {
+          "quantity": "1",
+          "unitPrice": "1.50",
+          "taxPercent": "7",
+          "discountType": "percent",
+          "discountValue": "0"
+        },
+        {
+          "quantity": "5",
+          "unitPrice": "20.00",
+          "taxPercent": "0",
+          "discountType": "percent",
+          "discountValue": "0"
+        }
       ],
       "expected": {
-        "lineTotals": ["180.00", "1.50", "100.00"],
+        "lineTotals": [
+          "180.00",
+          "1.50",
+          "100.00"
+        ],
         "subtotal": "301.50",
         "discountAmount": "20.00",
         "taxAmount": "12.71",
         "grandTotal": "294.21"
+      }
+    },
+    {
+      "name": "amount discount on one line",
+      "items": [
+        {
+          "quantity": "3",
+          "unitPrice": "1500.00",
+          "discountType": "amount",
+          "discountValue": "250",
+          "taxPercent": "7"
+        }
+      ],
+      "expected": {
+        "lineTotals": [
+          "4250.00"
+        ],
+        "subtotal": "4500.00",
+        "discountAmount": "250.00",
+        "taxAmount": "297.50",
+        "grandTotal": "4547.50"
+      }
+    },
+    {
+      "name": "amount discount with satang rounds half up",
+      "items": [
+        {
+          "quantity": "1",
+          "unitPrice": "999.99",
+          "discountType": "amount",
+          "discountValue": "100.005",
+          "taxPercent": "7"
+        }
+      ],
+      "expected": {
+        "lineTotals": [
+          "899.98"
+        ],
+        "subtotal": "999.99",
+        "discountAmount": "100.01",
+        "taxAmount": "63.00",
+        "grandTotal": "962.98"
+      }
+    },
+    {
+      "name": "amount discount equal to the whole line",
+      "items": [
+        {
+          "quantity": "2",
+          "unitPrice": "50.00",
+          "discountType": "amount",
+          "discountValue": "100",
+          "taxPercent": "7"
+        }
+      ],
+      "expected": {
+        "lineTotals": [
+          "0.00"
+        ],
+        "subtotal": "100.00",
+        "discountAmount": "100.00",
+        "taxAmount": "0.00",
+        "grandTotal": "0.00"
+      }
+    },
+    {
+      "name": "mixed percent and amount lines with cost and profit",
+      "items": [
+        {
+          "quantity": "2",
+          "unitPrice": "32900.00",
+          "unitCost": "26500.00",
+          "discountType": "percent",
+          "discountValue": "5",
+          "taxPercent": "7"
+        },
+        {
+          "quantity": "10",
+          "unitPrice": "590.00",
+          "unitCost": "310.00",
+          "discountType": "amount",
+          "discountValue": "400",
+          "taxPercent": "7"
+        },
+        {
+          "quantity": "12",
+          "unitPrice": "350.00",
+          "unitCost": "120.00",
+          "taxPercent": "0"
+        }
+      ],
+      "expected": {
+        "lineTotals": [
+          "62510.00",
+          "5500.00",
+          "4200.00"
+        ],
+        "subtotal": "75900.00",
+        "discountAmount": "3690.00",
+        "taxAmount": "4760.70",
+        "grandTotal": "76970.70",
+        "costTotal": "57540.00",
+        "profit": "14670.00"
+      }
+    },
+    {
+      "name": "profit can be negative",
+      "items": [
+        {
+          "quantity": "1",
+          "unitPrice": "1000.00",
+          "unitCost": "1200.00",
+          "discountType": "percent",
+          "discountValue": "10",
+          "taxPercent": "7"
+        }
+      ],
+      "expected": {
+        "lineTotals": [
+          "900.00"
+        ],
+        "subtotal": "1000.00",
+        "discountAmount": "100.00",
+        "taxAmount": "63.00",
+        "grandTotal": "963.00",
+        "costTotal": "1200.00",
+        "profit": "-300.00"
       }
     }
   ]

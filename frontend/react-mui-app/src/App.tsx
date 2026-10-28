@@ -2,13 +2,13 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './auth/auth'
 import { homePath } from './auth/roles'
 import { AppLayout } from './components/AppLayout'
-import { AdminPage } from './pages/admin/AdminPage'
 import { DashboardPage } from './pages/dashboard/DashboardPage'
 import { LoginPage } from './pages/login/LoginPage'
 import { PublicQuotePage } from './pages/public-quote/PublicQuotePage'
 import { QuoteBuilderPage } from './pages/quote-builder/QuoteBuilderPage'
 import { QuoteDetailPage } from './pages/quote-detail/QuoteDetailPage'
 import { QuotesPage } from './pages/quotes/QuotesPage'
+import { SettingsPage } from './pages/settings/SettingsPage'
 
 export default function App() {
   return (
@@ -27,8 +27,9 @@ export default function App() {
         <Route path="/dashboard" element={<DashboardPage />} />
       </Route>
       <Route element={<AppLayout roles={['admin']} />}>
-        <Route path="/admin" element={<AdminPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
       </Route>
+      <Route path="/admin" element={<Navigate to="/settings" replace />} />
       <Route path="*" element={<Home />} />
     </Routes>
   )

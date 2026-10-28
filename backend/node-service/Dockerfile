@@ -12,6 +12,8 @@ WORKDIR /app
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules node_modules
 COPY --from=build /app/dist dist
+# Embedded PDF fonts (Noto Sans Thai + Noto Sans, SIL OFL; see assets/fonts/OFL.txt).
+COPY assets assets
 USER node
 EXPOSE 8080
 CMD ["node", "dist/server.js"]

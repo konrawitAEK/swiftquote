@@ -38,6 +38,11 @@ const (
 	adminUser    = "00000000-0000-4000-8000-000000000002"
 	catSoftware  = "00000000-0000-4000-8000-000000000030"
 	catServices  = "00000000-0000-4000-8000-000000000031"
+	catHardware  = "00000000-0000-4000-8000-000000000032"
+	prodCRM      = "00000000-0000-4000-8000-000000000040" // Software, untracked
+	prodConsult  = "00000000-0000-4000-8000-000000000043" // Services, untracked
+	prodLaptop   = "00000000-0000-4000-8000-000000000044" // Hardware, stock 25
+	prodMouse    = "00000000-0000-4000-8000-000000000045" // Hardware, stock 200
 )
 
 type obj = map[string]any
@@ -146,8 +151,8 @@ func quoteBody(number string) obj {
 		"quoteNumber": number,
 		"expiryDate":  inAMonth(),
 		"items": []obj{
-			{"title": "Consulting", "categoryId": catServices, "quantity": 2, "unitPrice": 100, "discountPercent": 10},
-			{"title": "Setup fee", "categoryId": catSoftware, "quantity": 1, "unitPrice": 1.5},
+			{"productId": prodConsult, "quantity": 2, "unitPrice": 100, "discountValue": 10},
+			{"productId": prodCRM, "quantity": 1, "unitPrice": 1.5},
 		},
 	}
 }
@@ -208,7 +213,7 @@ func TestWorkflowFromDraftToAccepted(t *testing.T) {
 	assertEq(t, "return actor", last["actor"].(obj)["name"], "Somchai Wong")
 
 	body := quoteBody("Q-001")
-	body["items"] = []obj{{"title": "Consulting", "categoryId": catServices, "quantity": 2, "unitPrice": 100, "discountPercent": 5}}
+	body["items"] = []obj{{"productId": prodConsult, "quantity": 2, "unitPrice": 100, "discountType": "percent", "discountValue": 5}}
 	q = e.expect(200, "", "PUT", "/api/v1/quotes/"+id, rm, body)
 	assertEq(t, "grandTotal after edit", q["grandTotal"], 203.30)
 
@@ -465,19 +470,13 @@ func TestCategories(t *testing.T) {
 	assertEq(t, "rm sees all categories", len(list), 4)
 	e.expect(403, "FORBIDDEN", "GET", "/api/v1/categories", e.as("wo@swiftquote.dev"), nil)
 
-	res := e.expect(400, "VALIDATION_ERROR", "POST", "/api/v1/quotes", rm, quoteBody("Q-CAT"))
-	assertEq(t, "retired detail", res["details"], []any{"items[1].categoryId is not an active category"})
-	body := quoteBody("Q-CAT")
-	body["items"] = []obj{{"title": "x", "quantity": 1, "unitPrice": 1}}
-	res = e.expect(400, "VALIDATION_ERROR", "POST", "/api/v1/quotes", rm, body)
-	assertEq(t, "missing detail", res["details"], []any{"items[0].categoryId is required"})
-
-	body = quoteBody("Q-CAT")
-	body["items"] = []obj{{"title": "Workshop", "categoryId": c["id"], "quantity": 1, "unitPrice": 10}}
-	e.expect(400, "VALIDATION_ERROR", "POST", "/api/v1/quotes", rm, body)
-	body["items"] = []obj{{"title": "Workshop", "categoryId": catServices, "quantity": 1, "unitPrice": 10}}
-	q := e.expect(201, "", "POST", "/api/v1/quotes", rm, body)
-	assertEq(t, "line category", q["items"].([]any)[0].(obj)["category"].(obj)["name"], "Services")
+	// Products of a retired category stay usable; the line takes the product's category.
+	q := e.expect(201, "", "POST", "/api/v1/quotes", rm, quoteBody("Q-CAT"))
+	assertEq(t, "line category", q["items"].([]any)[1].(obj)["category"].(obj)["name"], "Software")
+	// A new product cannot be put in a retired category.
+	res := e.expect(400, "VALIDATION_ERROR", "POST", "/api/v1/admin/products", adm,
+		obj{"name": "X", "categoryId": catSoftware, "unitPrice": 1, "unitCost": 1})
+	assertEq(t, "retired category", res["details"], []any{"categoryId is not an active category"})
 }
 
 func TestAdminDeletes(t *testing.T) {
@@ -529,6 +528,15 @@ func TestAdminDeletes(t *testing.T) {
 		t.Fatalf("delete with malformed body: %v %v", resp.StatusCode, err)
 	}
 	del(404, "NOT_FOUND", "/api/v1/admin/categories/"+c["id"].(string)+"/delete")
+
+	// A category no quote uses but a product does cannot be deleted either.
+	c = e.expect(201, "", "POST", "/api/v1/admin/categories", adm, obj{"name": "Stocked"})
+	p := e.expect(201, "", "POST", "/api/v1/admin/products", adm,
+		obj{"name": "Cable", "categoryId": c["id"], "unitPrice": 10, "unitCost": 4})
+	res = del(409, "CONFLICT", "/api/v1/admin/categories/"+c["id"].(string)+"/delete")
+	assertEq(t, "used by products", res["message"], "conflict: category is used by products; move them to another category first")
+	del(204, "", "/api/v1/admin/products/"+p["id"].(string)+"/delete")
+	del(204, "", "/api/v1/admin/categories/"+c["id"].(string)+"/delete")
 }
 
 func TestErrorResponses(t *testing.T) {
@@ -569,4 +577,363 @@ func TestErrorResponses(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+rm)
 	resp, _ := e.app.Test(req, -1)
 	assertEq(t, "malformed JSON", resp.StatusCode, 400)
+}
+
+// raw sends a request and returns the status, headers and body without decoding.
+func (e *testEnv) raw(method, path, token string) (int, map[string]string, []byte) {
+	e.t.Helper()
+	req := httptest.NewRequest(method, path, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := e.app.Test(req, -1)
+	if err != nil {
+		e.t.Fatalf("%s %s: %v", method, path, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, map[string]string{
+		"Content-Type":        resp.Header.Get("Content-Type"),
+		"Content-Disposition": resp.Header.Get("Content-Disposition"),
+	}, body
+}
+
+func (e *testEnv) stock(productID string) string {
+	e.t.Helper()
+	var stock *string
+	if err := e.pool.QueryRow(context.Background(), `SELECT stock::text FROM products WHERE id = $1`, productID).Scan(&stock); err != nil {
+		e.t.Fatal(err)
+	}
+	if stock == nil {
+		return "null"
+	}
+	return *stock
+}
+
+func (e *testEnv) setStock(productID, stock string) {
+	e.t.Helper()
+	if _, err := e.pool.Exec(context.Background(), `UPDATE products SET stock = $2::numeric WHERE id = $1`, productID, stock); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+func item(q obj, i int) obj { return q["items"].([]any)[i].(obj) }
+
+func TestProducts(t *testing.T) {
+	e := newTestEnv(t)
+	adm := e.as("demo@swiftquote.dev")
+
+	for _, email := range []string{"demo@swiftquote.dev", "woc@swiftquote.dev", "wo@swiftquote.dev", "rm1@swiftquote.dev"} {
+		var list []obj
+		if s := e.do("GET", "/api/v1/products", e.as(email), nil, &list); s != 200 {
+			t.Fatalf("%s: status %d", email, s)
+		}
+		assertEq(t, email+" products", len(list), 6)
+	}
+	e.expect(403, "FORBIDDEN", "GET", "/api/v1/products", e.as("buyer@acme.example"), nil)
+
+	var list []obj
+	e.do("GET", "/api/v1/products", adm, nil, &list)
+	assertEq(t, "ordered by name", list[0]["name"], "CRM licence (per user / year)")
+	laptop := list[3]
+	assertEq(t, "laptop", laptop["name"], "Laptop 14-inch")
+	assertEq(t, "laptop category", laptop["category"].(obj)["name"], "Hardware")
+	assertEq(t, "laptop price", laptop["unitPrice"], 32900)
+	assertEq(t, "laptop cost", laptop["unitCost"], 26500)
+	assertEq(t, "laptop stock", laptop["stock"], 25)
+	if v, ok := list[0]["stock"]; !ok || v != nil {
+		t.Errorf("untracked stock: got %v (present %v), want null", v, ok)
+	}
+
+	// Money and stock are rendered with 2 decimals.
+	_, _, body := e.raw("GET", "/api/v1/products", adm)
+	if !strings.Contains(string(body), `"stock":25.00`) || !strings.Contains(string(body), `"unitCost":26500.00`) {
+		t.Errorf("product money format: %s", body)
+	}
+
+	p := e.expect(201, "", "POST", "/api/v1/admin/products", adm,
+		obj{"name": "  USB hub ", "categoryId": catHardware, "unitPrice": 450, "unitCost": 210.5, "stock": 12})
+	id := p["id"].(string)
+	assertEq(t, "trimmed", p["name"], "USB hub")
+	assertEq(t, "active", p["active"], true)
+	assertEq(t, "stock", p["stock"], 12)
+	res := e.expect(409, "CONFLICT", "POST", "/api/v1/admin/products", adm,
+		obj{"name": "Wireless mouse", "categoryId": catHardware, "unitPrice": 1, "unitCost": 1})
+	assertEq(t, "duplicate", res["message"], `conflict: product "Wireless mouse" already exists`)
+	e.expect(403, "FORBIDDEN", "POST", "/api/v1/admin/products", e.as("rm1@swiftquote.dev"),
+		obj{"name": "X", "categoryId": catHardware, "unitPrice": 1, "unitCost": 1})
+
+	res = e.expect(400, "VALIDATION_ERROR", "POST", "/api/v1/admin/products", adm, obj{"name": " "})
+	assertEq(t, "required", res["details"],
+		[]any{"name is required", "categoryId is required", "unitPrice is required", "unitCost is required"})
+	res = e.expect(400, "VALIDATION_ERROR", "POST", "/api/v1/admin/products", adm,
+		obj{"name": "X", "categoryId": "00000000-0000-4000-8000-0000000000ff", "unitPrice": -1, "unitCost": -1, "stock": -1})
+	assertEq(t, "negative", res["details"],
+		[]any{"unitPrice must not be negative", "unitCost must not be negative", "stock must not be negative"})
+	res = e.expect(400, "VALIDATION_ERROR", "POST", "/api/v1/admin/products", adm,
+		obj{"name": "X", "categoryId": "00000000-0000-4000-8000-0000000000ff", "unitPrice": 1, "unitCost": 1})
+	assertEq(t, "category", res["details"], []any{"categoryId is not an active category"})
+
+	missing := "/api/v1/admin/products/00000000-0000-4000-8000-0000000000ff"
+	res = e.expect(404, "NOT_FOUND", "PUT", missing, adm, obj{})
+	assertEq(t, "not found", res["message"], "not found: product not found")
+	e.expect(403, "FORBIDDEN", "PUT", missing, e.as("woc@swiftquote.dev"), obj{})
+	res = e.expect(400, "VALIDATION_ERROR", "PUT", "/api/v1/admin/products/"+id, adm,
+		obj{"name": "USB hub", "categoryId": catHardware, "unitPrice": 450, "unitCost": 210})
+	assertEq(t, "active required", res["details"], []any{"active is required"})
+	e.expect(409, "CONFLICT", "PUT", "/api/v1/admin/products/"+id, adm,
+		obj{"name": "Wireless mouse", "categoryId": catHardware, "unitPrice": 1, "unitCost": 1, "active": true})
+
+	// Untracking stock and retiring: RMs can no longer put it on a quote.
+	p = e.expect(200, "", "PUT", "/api/v1/admin/products/"+id, adm,
+		obj{"name": "USB hub", "categoryId": catServices, "unitPrice": 450, "unitCost": 210, "stock": nil, "active": false})
+	assertEq(t, "retired", p["active"], false)
+	assertEq(t, "moved", p["category"].(obj)["name"], "Services")
+	if p["stock"] != nil {
+		t.Errorf("stock: got %v, want null", p["stock"])
+	}
+	body2 := quoteBody("Q-RETIRED")
+	body2["items"] = []obj{{"productId": prodCRM, "quantity": 1}, {"productId": id, "quantity": 1}}
+	res = e.expect(400, "VALIDATION_ERROR", "POST", "/api/v1/quotes", e.as("rm1@swiftquote.dev"), body2)
+	assertEq(t, "retired product", res["details"], []any{"items[1].productId is not an active product"})
+
+	// Delete: only products no quote line uses.
+	e.expect(403, "FORBIDDEN", "POST", "/api/v1/admin/products/"+id+"/delete", e.as("rm1@swiftquote.dev"), nil)
+	e.create("rm1@swiftquote.dev", "Q-USED")
+	res = e.expect(409, "CONFLICT", "POST", "/api/v1/admin/products/"+prodConsult+"/delete", adm, nil)
+	assertEq(t, "used", res["message"], "conflict: product is used on quotes; retire it instead")
+	if s := e.do("POST", "/api/v1/admin/products/"+id+"/delete", adm, nil, nil); s != 204 {
+		t.Fatalf("delete: status %d", s)
+	}
+	e.expect(404, "NOT_FOUND", "POST", "/api/v1/admin/products/"+id+"/delete", adm, nil)
+}
+
+func TestQuoteLines(t *testing.T) {
+	e := newTestEnv(t)
+	rm := e.as("rm1@swiftquote.dev")
+
+	body := quoteBody("Q-LINES")
+	body["items"] = []obj{
+		{"productId": prodLaptop, "quantity": 2, "discountType": "percent", "discountValue": 5, "description": "14-inch, 16 GB"},
+		{"productId": prodMouse, "quantity": 10, "discountType": "amount", "discountValue": 400},
+		{"productId": "00000000-0000-4000-8000-000000000041", "quantity": 12, "taxPercent": 0},
+	}
+	q := e.expect(201, "", "POST", "/api/v1/quotes", rm, body)
+	l0 := item(q, 0)
+	assertEq(t, "product", l0["product"].(obj)["name"], "Laptop 14-inch")
+	assertEq(t, "title from product", l0["title"], "Laptop 14-inch")
+	assertEq(t, "category from product", l0["category"].(obj)["name"], "Hardware")
+	assertEq(t, "default price", l0["unitPrice"], 32900)
+	assertEq(t, "discount type", l0["discountType"], "percent")
+	assertEq(t, "discount amount", l0["discountAmount"], 3290)
+	assertEq(t, "unit cost", l0["unitCost"], 26500)
+	assertEq(t, "cost total", l0["costTotal"], 53000)
+	assertEq(t, "profit", l0["profit"], 9510)
+	l1 := item(q, 1)
+	assertEq(t, "amount type", l1["discountType"], "amount")
+	assertEq(t, "amount value", l1["discountValue"], 400)
+	assertEq(t, "amount discount", l1["discountAmount"], 400)
+	assertEq(t, "amount line", l1["lineTotal"], 5500)
+	assertEq(t, "default type", item(q, 2)["discountType"], "percent")
+	assertEq(t, "subtotal", q["subtotal"], 75900)
+	assertEq(t, "discount", q["discountAmount"], 3690)
+	assertEq(t, "grand", q["grandTotal"], 76970.7)
+	assertEq(t, "quote cost", q["costTotal"], 57540)
+	assertEq(t, "quote profit", q["profit"], 14670)
+
+	// Changing the product's cost later does not change saved lines.
+	e.expect(200, "", "PUT", "/api/v1/admin/products/"+prodLaptop, e.as("demo@swiftquote.dev"),
+		obj{"name": "Laptop 14-inch", "categoryId": catHardware, "unitPrice": 32900, "unitCost": 30000, "stock": 25, "active": true})
+	q = e.expect(200, "", "GET", "/api/v1/quotes/"+q["id"].(string), e.as("woc@swiftquote.dev"), nil)
+	assertEq(t, "snapshot cost", item(q, 0)["unitCost"], 26500)
+
+	// Lines saved before products existed have no product or cost; then the quote has none either.
+	if _, err := e.pool.Exec(context.Background(),
+		`UPDATE quote_items SET product_id = NULL, unit_cost = NULL WHERE quote_id = $1 AND position = 2`, q["id"]); err != nil {
+		t.Fatal(err)
+	}
+	q = e.expect(200, "", "GET", "/api/v1/quotes/"+q["id"].(string), rm, nil)
+	for _, k := range []string{"product", "unitCost", "costTotal", "profit"} {
+		if v, ok := item(q, 2)[k]; !ok || v != nil {
+			t.Errorf("legacy %s: got %v (present %v), want null", k, v, ok)
+		}
+	}
+	for _, k := range []string{"costTotal", "profit"} {
+		if v, ok := q[k]; !ok || v != nil {
+			t.Errorf("quote %s: got %v (present %v), want null", k, v, ok)
+		}
+	}
+
+	line := func(it obj) obj {
+		b := quoteBody("Q-BAD")
+		b["items"] = []obj{it}
+		return b
+	}
+	for name, tc := range map[string]struct {
+		item obj
+		want []any
+	}{
+		"required":          {obj{"discountType": "fixed"}, []any{"items[0].productId is required", "items[0].quantity is required", `items[0].discountType "fixed" is not a valid DiscountType`}},
+		"unknown product":   {obj{"productId": "00000000-0000-4000-8000-0000000000ff", "quantity": 1}, []any{"items[0].productId is not an active product"}},
+		"quantity":          {obj{"productId": prodCRM, "quantity": 0.5}, []any{"items[0]: quantity must be at least 1"}},
+		"negative price":    {obj{"productId": prodCRM, "quantity": 1, "unitPrice": -1}, []any{"items[0]: unitPrice must not be negative"}},
+		"negative discount": {obj{"productId": prodCRM, "quantity": 1, "discountType": "amount", "discountValue": -1}, []any{"items[0]: discountValue must not be negative"}},
+		"percent above 100": {obj{"productId": prodCRM, "quantity": 1, "discountValue": 101}, []any{"items[0]: discountValue must be between 0 and 100"}},
+		"amount above line": {obj{"productId": prodCRM, "quantity": 1, "unitPrice": 10, "discountType": "amount", "discountValue": 10.005}, []any{"items[0]: discountValue must not exceed the line amount"}},
+		"tax above 100":     {obj{"productId": prodCRM, "quantity": 1, "taxPercent": 101}, []any{"items[0]: taxPercent must be between 0 and 100"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			res := e.expect(400, "VALIDATION_ERROR", "POST", "/api/v1/quotes", rm, line(tc.item))
+			assertEq(t, "details", res["details"], tc.want)
+		})
+	}
+	q = e.expect(201, "", "POST", "/api/v1/quotes", rm,
+		line(obj{"productId": prodCRM, "quantity": 1, "unitPrice": 10, "discountType": "amount", "discountValue": 10.004}))
+	assertEq(t, "amount rounds to the line", item(q, 0)["lineTotal"], 0)
+}
+
+func TestCostHiddenFromCustomers(t *testing.T) {
+	e := newTestEnv(t)
+	id, link := e.sent("Q-COST")
+	costKeys := func(t *testing.T, label string, q obj) {
+		t.Helper()
+		for _, k := range []string{"costTotal", "profit"} {
+			if _, ok := q[k]; ok {
+				t.Errorf("%s: %s must be omitted", label, k)
+			}
+		}
+		for _, it := range q["items"].([]any) {
+			for _, k := range []string{"unitCost", "costTotal", "profit"} {
+				if _, ok := it.(obj)[k]; ok {
+					t.Errorf("%s: items[].%s must be omitted", label, k)
+				}
+			}
+			if it.(obj)["product"] == nil || it.(obj)["discountAmount"] == nil {
+				t.Errorf("%s: product and discountAmount must be present", label)
+			}
+		}
+	}
+
+	q := e.expect(200, "", "GET", "/api/v1/quotes/"+id, e.as("wo@swiftquote.dev"), nil)
+	assertEq(t, "wo sees cost", item(q, 0)["unitCost"], 900)
+	assertEq(t, "wo sees profit", q["profit"], -3418.5)
+
+	costKeys(t, "public view", e.expect(200, "", "GET", "/api/v1/public/quotes/"+link, "", nil))
+	customer := e.as("buyer@acme.example")
+	costKeys(t, "customer view", e.expect(200, "", "GET", "/api/v1/quotes/"+id, customer, nil))
+	costKeys(t, "customer accept", e.expect(200, "", "POST", "/api/v1/quotes/"+id+"/accept", customer,
+		obj{"signerName": "Alice", "signatureDataUrl": "data:x"}))
+
+	_, link2 := e.sent("Q-COST2")
+	costKeys(t, "public reject", e.expect(200, "", "POST", "/api/v1/public/quotes/"+link2+"/reject", "", nil))
+}
+
+func TestStock(t *testing.T) {
+	e := newTestEnv(t)
+	rm, wo := e.as("rm1@swiftquote.dev"), e.as("wo@swiftquote.dev")
+	laptops := func(number string, qty ...float64) string {
+		b := quoteBody(number)
+		items := []obj{{"productId": prodConsult, "quantity": 1}}
+		for _, n := range qty {
+			items = append(items, obj{"productId": prodLaptop, "quantity": n}, obj{"productId": prodMouse, "quantity": 1})
+		}
+		b["items"] = items
+		return e.expect(201, "", "POST", "/api/v1/quotes", rm, b)["id"].(string)
+	}
+
+	// Submit totals each product over all its lines.
+	id := laptops("Q-S1", 20, 6)
+	res := e.expect(409, "CONFLICT", "POST", "/api/v1/quotes/"+id+"/submit", rm, nil)
+	assertEq(t, "submit", res["message"], "conflict: not enough stock for Laptop 14-inch (available 25)")
+
+	// Send checks again; available is shown without trailing zeros.
+	id = laptops("Q-S2", 5)
+	e.expect(200, "", "POST", "/api/v1/quotes/"+id+"/submit", rm, nil)
+	e.expect(200, "", "POST", "/api/v1/quotes/"+id+"/approve", wo, nil)
+	e.setStock(prodLaptop, "2.5")
+	res = e.expect(409, "CONFLICT", "POST", "/api/v1/quotes/"+id+"/send", rm, nil)
+	assertEq(t, "send", res["message"], "conflict: not enough stock for Laptop 14-inch (available 2.5)")
+	e.setStock(prodLaptop, "0")
+	res = e.expect(409, "CONFLICT", "POST", "/api/v1/quotes/"+id+"/send", rm, nil)
+	assertEq(t, "send zero", res["message"], "conflict: not enough stock for Laptop 14-inch (available 0)")
+
+	// Accept deducts in one transaction, or nothing at all.
+	e.setStock(prodLaptop, "25")
+	e.expect(200, "", "POST", "/api/v1/quotes/"+id+"/send", rm, nil)
+	e.setStock(prodLaptop, "4")
+	customer := e.as("buyer@acme.example")
+	sign := obj{"signerName": "Alice", "signatureDataUrl": "data:x"}
+	res = e.expect(409, "CONFLICT", "POST", "/api/v1/quotes/"+id+"/accept", customer, sign)
+	assertEq(t, "accept", res["message"], "conflict: not enough stock for Laptop 14-inch (available 4)")
+	assertEq(t, "mouse untouched", e.stock(prodMouse), "200.00")
+	q := e.expect(200, "", "GET", "/api/v1/quotes/"+id, customer, nil)
+	assertEq(t, "still open", q["status"], "viewed")
+	e.setStock(prodLaptop, "5")
+	e.expect(200, "", "POST", "/api/v1/quotes/"+id+"/accept", customer, sign)
+	assertEq(t, "laptop deducted", e.stock(prodLaptop), "0.00")
+	assertEq(t, "mouse deducted", e.stock(prodMouse), "199.00")
+	assertEq(t, "untracked", e.stock(prodConsult), "null")
+
+	// The share link deducts too; rejecting never does.
+	e.setStock(prodLaptop, "25")
+	_, link := e.sent("Q-S3")
+	b := quoteBody("Q-S4")
+	b["items"] = []obj{{"productId": prodMouse, "quantity": 3}}
+	id = e.expect(201, "", "POST", "/api/v1/quotes", rm, b)["id"].(string)
+	e.expect(200, "", "POST", "/api/v1/quotes/"+id+"/submit", rm, nil)
+	e.expect(200, "", "POST", "/api/v1/quotes/"+id+"/approve", wo, nil)
+	link4 := e.expect(200, "", "POST", "/api/v1/quotes/"+id+"/send", rm, nil)["accessToken"].(string)
+	e.expect(200, "", "POST", "/api/v1/public/quotes/"+link+"/reject", "", nil)
+	e.expect(200, "", "POST", "/api/v1/public/quotes/"+link4+"/accept", "", sign)
+	assertEq(t, "link deducted", e.stock(prodMouse), "196.00")
+}
+
+func TestQuotePdf(t *testing.T) {
+	e := newTestEnv(t)
+	rm, wo := e.as("rm1@swiftquote.dev"), e.as("wo@swiftquote.dev")
+	id := e.create("rm1@swiftquote.dev", "Q/PDF 1")
+	path := "/api/v1/quotes/" + id + "/pdf"
+
+	status, _, body := e.raw("GET", path, rm)
+	assertEq(t, "draft status", status, 409)
+	var res obj
+	_ = json.Unmarshal(body, &res)
+	assertEq(t, "draft", res["message"], "conflict: cannot export a quote that is draft")
+	e.expect(200, "", "POST", "/api/v1/quotes/"+id+"/submit", rm, nil)
+	status, _, _ = e.raw("GET", path, wo)
+	assertEq(t, "pending", status, 409)
+	e.expect(200, "", "POST", "/api/v1/quotes/"+id+"/approve", wo, nil)
+
+	status, headers, body := e.raw("GET", path, rm)
+	assertEq(t, "approved", status, 200)
+	assertEq(t, "content type", headers["Content-Type"], "application/pdf")
+	assertEq(t, "disposition", headers["Content-Disposition"], `attachment; filename="Q_PDF_1.pdf"`)
+	if !bytes.HasPrefix(body, []byte("%PDF")) {
+		t.Errorf("body is not a PDF: %q", body[:min(len(body), 16)])
+	}
+	status, _, _ = e.raw("GET", path, e.as("demo@swiftquote.dev"))
+	assertEq(t, "admin", status, 403)
+	status, _, _ = e.raw("GET", path, e.as("wo2@swiftquote.dev"))
+	assertEq(t, "other wo", status, 404)
+	status, _, _ = e.raw("GET", path, e.as("buyer@acme.example"))
+	assertEq(t, "customer before send", status, 404)
+
+	q := e.expect(200, "", "POST", "/api/v1/quotes/"+id+"/send", rm, nil)
+	link := q["accessToken"].(string)
+	status, _, _ = e.raw("GET", path, e.as("buyer@acme.example"))
+	assertEq(t, "customer", status, 200)
+	status, headers, body = e.raw("GET", "/api/v1/public/quotes/"+link+"/pdf", "")
+	assertEq(t, "public", status, 200)
+	assertEq(t, "public disposition", headers["Content-Disposition"], `attachment; filename="Q_PDF_1.pdf"`)
+	if !bytes.HasPrefix(body, []byte("%PDF")) {
+		t.Error("public body is not a PDF")
+	}
+	q = e.expect(200, "", "GET", "/api/v1/quotes/"+id, rm, nil)
+	assertEq(t, "downloads do not mark viewed", q["status"], "sent")
+
+	draft := e.expect(201, "", "POST", "/api/v1/quotes", rm, quoteBody("Q-PDF-2"))
+	status, _, _ = e.raw("GET", "/api/v1/public/quotes/"+draft["accessToken"].(string)+"/pdf", "")
+	assertEq(t, "public draft", status, 404)
+	status, _, _ = e.raw("GET", "/api/v1/public/quotes/not-a-uuid/pdf", "")
+	assertEq(t, "public unknown", status, 404)
 }

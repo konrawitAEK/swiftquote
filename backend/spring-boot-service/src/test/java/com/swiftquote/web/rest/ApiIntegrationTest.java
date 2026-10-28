@@ -60,6 +60,16 @@ class ApiIntegrationTest {
 
 	static final String CAT_SERVICES = "00000000-0000-4000-8000-000000000031";
 
+	static final String CAT_HARDWARE = "00000000-0000-4000-8000-000000000032";
+
+	static final String CRM_LICENCE = "00000000-0000-4000-8000-000000000040";
+
+	static final String CONSULTING = "00000000-0000-4000-8000-000000000043";
+
+	static final String LAPTOP = "00000000-0000-4000-8000-000000000044";
+
+	static final String MOUSE = "00000000-0000-4000-8000-000000000045";
+
 	static final String UNKNOWN_ID = "00000000-0000-4000-8000-0000000000ff";
 
 	static final String RM1 = "rm1@swiftquote.dev";
@@ -163,11 +173,14 @@ class ApiIntegrationTest {
 		return m;
 	}
 
+	/** Consulting (Services) 2 x 100 less 10% and a CRM licence (Software) at 1.50: 194.21 incl. VAT. */
 	static Map<String, Object> quoteBody(String number) {
-		return obj("clientId", ACME_CLIENT, "quoteNumber", number, "expiryDate", inAMonth(), "items",
-				List.of(obj("title", "Consulting", "categoryId", CAT_SERVICES, "quantity", 2, "unitPrice", 100,
-						"discountPercent", 10),
-						obj("title", "Setup fee", "categoryId", CAT_SOFTWARE, "quantity", 1, "unitPrice", 1.5)));
+		return quoteBody(number, List.of(obj("productId", CONSULTING, "quantity", 2, "unitPrice", 100,
+				"discountValue", 10), obj("productId", CRM_LICENCE, "quantity", 1, "unitPrice", 1.5)));
+	}
+
+	static Map<String, Object> quoteBody(String number, List<Map<String, Object>> items) {
+		return obj("clientId", ACME_CLIENT, "quoteNumber", number, "expiryDate", inAMonth(), "items", items);
 	}
 
 	String create(String rm, String number) {
@@ -237,8 +250,8 @@ class ApiIntegrationTest {
 		assertThat(m(last.get("actor"))).containsEntry("name", "Somchai Wong");
 
 		Map<String, Object> body = quoteBody("Q-001");
-		body.put("items", List.of(obj("title", "Consulting", "categoryId", CAT_SERVICES, "quantity", 2, "unitPrice",
-				100, "discountPercent", 5)));
+		body.put("items", List.of(obj("productId", CONSULTING, "quantity", 2, "unitPrice", 100, "discountType",
+				"percent", "discountValue", 5)));
 		q = expect(200, null, "PUT", "/api/v1/quotes/" + id, rm, body).map();
 		assertThat(text(q.get("grandTotal"))).isEqualTo("203.30");
 
@@ -566,19 +579,9 @@ class ApiIntegrationTest {
 		assertThat(expect(200, null, "GET", "/api/v1/categories", rm, null).list()).hasSize(4);
 		expect(403, "FORBIDDEN", "GET", "/api/v1/categories", as(WO), null);
 
-		Res res = expect(400, "VALIDATION_ERROR", "POST", "/api/v1/quotes", rm, quoteBody("Q-CAT"));
-		assertThat(res.map()).containsEntry("details", List.of("items[1].categoryId is not an active category"));
-		Map<String, Object> body = quoteBody("Q-CAT");
-		body.put("items", List.of(obj("title", "x", "quantity", 1, "unitPrice", 1)));
-		res = expect(400, "VALIDATION_ERROR", "POST", "/api/v1/quotes", rm, body);
-		assertThat(res.map()).containsEntry("details", List.of("items[0].categoryId is required"));
-
-		body.put("items", List.of(obj("title", "Workshop", "categoryId", c.get("id"), "quantity", 1, "unitPrice", 10)));
-		expect(400, "VALIDATION_ERROR", "POST", "/api/v1/quotes", rm, body);
-		body.put("items",
-				List.of(obj("title", "Workshop", "categoryId", CAT_SERVICES, "quantity", 1, "unitPrice", 10)));
-		Map<String, Object> q = expect(201, null, "POST", "/api/v1/quotes", rm, body).map();
-		assertThat(m(at(q.get("items"), 0).get("category"))).containsEntry("name", "Services");
+		// Lines take their category from the product, so a retired category stays on new lines.
+		Map<String, Object> q = expect(201, null, "POST", "/api/v1/quotes", rm, quoteBody("Q-CAT")).map();
+		assertThat(m(at(q.get("items"), 1).get("category"))).containsEntry("name", "Software");
 	}
 
 	@Test
@@ -668,6 +671,11 @@ class ApiIntegrationTest {
 		assertThat(noCat.map()).containsEntry("message", "not found: category not found");
 		expect(404, "NOT_FOUND", "POST", "/api/v1/admin/categories/nope/delete", adm, null);
 		expect(404, "NOT_FOUND", "POST", "/api/v1/admin/categories/" + UNKNOWN_ID + "/delete", adm, null);
+		// Hardware is on no quote but has products.
+		Res products = expect(409, "CONFLICT", "POST", "/api/v1/admin/categories/" + CAT_HARDWARE + "/delete", adm,
+				null);
+		assertThat(products.map()).containsEntry("message",
+				"conflict: category is used by products; move them to another category first");
 		assertThat(expect(200, null, "GET", "/api/v1/categories", adm, null).list()).hasSize(3);
 	}
 
@@ -698,7 +706,7 @@ class ApiIntegrationTest {
 				new Case("duplicate number", "POST", "/api/v1/quotes", rm, quoteBody("Q-DUP"), 409, "CONFLICT",
 						"conflict: quoteNumber \"Q-DUP\" already exists"),
 				new Case("missing fields", "POST", "/api/v1/quotes", rm,
-						obj("quoteNumber", " ", "items", List.of(obj("title", ""))), 400, "VALIDATION_ERROR",
+						obj("quoteNumber", " ", "items", List.of(obj("description", ""))), 400, "VALIDATION_ERROR",
 						"request validation failed"),
 				new Case("other tenant client", "POST", "/api/v1/quotes", rm, otherClient, 400, "VALIDATION_ERROR",
 						"request validation failed"),
@@ -716,21 +724,35 @@ class ApiIntegrationTest {
 
 		assertThat(call("GET", "/api/v1/quotes?status=bogus", rm, null).map()).containsEntry("details",
 				List.of("status \"bogus\" is not a valid QuoteStatus"));
-		assertThat(call("POST", "/api/v1/quotes", rm, obj("quoteNumber", " ", "items", List.of(obj("title", ""))))
+		assertThat(call("POST", "/api/v1/quotes", rm,
+				obj("quoteNumber", " ", "items", List.of(obj("discountType", "fixed"))))
 			.map()).containsEntry("details", List.of("clientId is required", "expiryDate is required",
-					"items[0].categoryId is required", "items[0].quantity is required",
-					"items[0].unitPrice is required"));
+					"items[0].productId is required", "items[0].quantity is required",
+					"items[0].discountType \"fixed\" is not a valid DiscountType"));
 		assertThat(call("POST", "/api/v1/quotes", rm, otherClient).map()).containsEntry("details",
 				List.of("clientId does not exist"));
 
 		// The second pass reports every value problem at once; pricing reports its first invalid line.
 		Map<String, Object> values = quoteBody(" ");
 		values.put("expiryDate", "2000-01-01");
-		values.put("items", List.of(obj("title", " ", "categoryId", CAT_SERVICES, "quantity", 0.5, "unitPrice", -1,
-				"discountPercent", 101)));
+		values.put("items", List.of(obj("productId", CONSULTING, "quantity", 0.5, "unitPrice", -1,
+				"discountValue", 101)));
 		assertThat(call("POST", "/api/v1/quotes", rm, values).map()).containsEntry("details",
-				List.of("quoteNumber is required", "expiryDate must not be in the past", "items[0].title is required",
+				List.of("quoteNumber is required", "expiryDate must not be in the past",
 						"items[0]: quantity must be at least 1"));
+		values.put("items", List.of(obj("productId", CONSULTING, "quantity", 1), obj("productId", UNKNOWN_ID,
+				"quantity", 1)));
+		assertThat(call("POST", "/api/v1/quotes", rm, values).map()).containsEntry("details",
+				List.of("quoteNumber is required", "expiryDate must not be in the past",
+						"items[1].productId is not an active product"));
+		Map<String, Object> amount = quoteBody("Q-AMT", List.of(obj("productId", CONSULTING, "quantity", 1),
+				obj("productId", MOUSE, "quantity", 2, "discountType", "amount", "discountValue", 1180.01)));
+		assertThat(call("POST", "/api/v1/quotes", rm, amount).map()).containsEntry("details",
+				List.of("items[1]: discountValue must not exceed the line amount"));
+		amount.put("items", List.of(obj("productId", MOUSE, "quantity", 2, "discountType", "percent",
+				"discountValue", -1)));
+		assertThat(call("POST", "/api/v1/quotes", rm, amount).map()).containsEntry("details",
+				List.of("items[0]: discountValue must not be negative"));
 		Map<String, Object> noItems = quoteBody("Q-NONE");
 		noItems.put("items", List.of());
 		assertThat(call("POST", "/api/v1/quotes", rm, noItems).map()).containsEntry("details",
@@ -768,8 +790,19 @@ class ApiIntegrationTest {
 				"\"signedBy\":null", "\"signedAt\":null", "\"description\":null", "\"comment\":null");
 		Map<String, Object> q = created.map();
 		assertThat(q.keySet()).containsExactly("id", "quoteNumber", "status", "clientId", "clientName", "createdBy",
-				"expiryDate", "subtotal", "discountAmount", "taxAmount", "grandTotal", "accessToken", "signedBy",
-				"signedAt", "items", "history");
+				"expiryDate", "subtotal", "discountAmount", "taxAmount", "grandTotal", "costTotal", "profit",
+				"accessToken", "signedBy", "signedAt", "items", "history");
+		Map<String, Object> line = at(q.get("items"), 0);
+		assertThat(line.keySet()).containsExactly("product", "title", "category", "description", "quantity",
+				"unitPrice", "discountType", "discountValue", "discountAmount", "taxPercent", "lineTotal", "unitCost",
+				"costTotal", "profit");
+		assertThat(m(line.get("product"))).containsEntry("id", CONSULTING)
+			.containsEntry("name", "Consulting (per hour)");
+		assertThat(line).containsEntry("title", "Consulting (per hour)").containsEntry("discountType", "percent");
+		// Consulting costs 900/h: 2 x 900 = 1800 against 180 of revenue; the licence costs 1800.
+		assertThat(created.raw()).contains("\"discountValue\":10.00", "\"discountAmount\":20.00",
+				"\"unitCost\":900.00", "\"costTotal\":1800.00", "\"profit\":-1620.00", "\"costTotal\":3600.00",
+				"\"profit\":-3418.50");
 		Map<String, Object> event = at(q.get("history"), 0);
 		assertThat(event.keySet()).containsExactly("action", "actor", "comment", "at");
 		assertThat(m(event.get("actor"))).containsEntry("id", RM1_USER);
@@ -807,6 +840,280 @@ class ApiIntegrationTest {
 		// Drafts never reach customers.
 		String draft = create(RM1, "Q-HIDDEN");
 		expect(404, "NOT_FOUND", "GET", "/api/v1/quotes/" + draft, customer, null);
+	}
+
+
+	@Test
+	void products() {
+		String adm = as(ADMIN);
+
+		for (String email : List.of(ADMIN, WOC, WO, RM1)) {
+			assertThat(expect(200, null, "GET", "/api/v1/products", as(email), null).list()).as(email).hasSize(6);
+		}
+		expect(403, "FORBIDDEN", "GET", "/api/v1/products", as(ACME_BUYER), null);
+		expect(401, "UNAUTHORIZED", "GET", "/api/v1/products", null, null);
+
+		Res list = expect(200, null, "GET", "/api/v1/products", as(RM1), null);
+		assertThat(list.list()).extracting((p) -> p.get("name"))
+			.containsExactly("CRM licence (per user / year)", "Consulting (per hour)", "Hosting (per month)",
+					"Laptop 14-inch", "Website redesign", "Wireless mouse");
+		assertThat(list.list().get(0).keySet()).containsExactly("id", "name", "category", "unitPrice", "unitCost",
+				"stock", "active");
+		assertThat(list.raw()).contains("{\"id\":\"" + LAPTOP
+				+ "\",\"name\":\"Laptop 14-inch\",\"category\":{\"id\":\"" + CAT_HARDWARE
+				+ "\",\"name\":\"Hardware\"},\"unitPrice\":32900.00,\"unitCost\":26500.00,\"stock\":25.00,\"active\":true}");
+		assertThat(list.list().get(0)).containsEntry("stock", null);
+
+		Map<String, Object> p = expect(201, null, "POST", "/api/v1/admin/products", adm, obj("name", " Docking station ",
+				"categoryId", CAT_HARDWARE, "unitPrice", 4990, "unitCost", 3200.5, "stock", 2.5))
+			.map();
+		String id = (String) p.get("id");
+		assertThat(p).containsEntry("name", "Docking station").containsEntry("active", true);
+		assertThat(text(p.get("stock"))).isEqualTo("2.50");
+		assertThat(text(p.get("unitCost"))).isEqualTo("3200.50");
+		Res dup = expect(409, "CONFLICT", "POST", "/api/v1/admin/products", adm,
+				obj("name", "Wireless mouse", "categoryId", CAT_HARDWARE, "unitPrice", 1, "unitCost", 1));
+		assertThat(dup.map()).containsEntry("message", "conflict: product \"Wireless mouse\" already exists");
+		Res empty = expect(400, "VALIDATION_ERROR", "POST", "/api/v1/admin/products", adm, obj("stock", -1));
+		assertThat(empty.map()).containsEntry("details", List.of("name is required", "categoryId is required",
+				"unitPrice is required", "unitCost is required", "stock must not be negative"));
+		Res negative = expect(400, "VALIDATION_ERROR", "POST", "/api/v1/admin/products", adm,
+				obj("name", "X", "categoryId", UNKNOWN_ID, "unitPrice", -1, "unitCost", -2));
+		assertThat(negative.map()).containsEntry("details",
+				List.of("unitPrice must not be negative", "unitCost must not be negative"));
+		Res category = expect(400, "VALIDATION_ERROR", "POST", "/api/v1/admin/products", adm,
+				obj("name", "X", "categoryId", UNKNOWN_ID, "unitPrice", 1, "unitCost", 1));
+		assertThat(category.map()).containsEntry("details", List.of("categoryId is not an active category"));
+		expect(403, "FORBIDDEN", "POST", "/api/v1/admin/products", as(RM1), obj());
+		expect(403, "FORBIDDEN", "PUT", "/api/v1/admin/products/" + UNKNOWN_ID, as(WOC), obj());
+
+		Res unknown = expect(404, "NOT_FOUND", "PUT", "/api/v1/admin/products/" + UNKNOWN_ID, adm, obj());
+		assertThat(unknown.map()).containsEntry("message", "not found: product not found");
+		Res noActive = expect(400, "VALIDATION_ERROR", "PUT", "/api/v1/admin/products/" + id, adm,
+				obj("name", "Dock", "categoryId", CAT_HARDWARE, "unitPrice", 1, "unitCost", 1));
+		assertThat(noActive.map()).containsEntry("details", List.of("active is required"));
+		Res renameDup = expect(409, "CONFLICT", "PUT", "/api/v1/admin/products/" + id, adm, obj("name",
+				"Laptop 14-inch", "categoryId", CAT_HARDWARE, "unitPrice", 1, "unitCost", 1, "active", true));
+		assertThat(renameDup.map()).containsEntry("message", "conflict: product \"Laptop 14-inch\" already exists");
+		p = expect(200, null, "PUT", "/api/v1/admin/products/" + id, adm, obj("name", "Dock", "categoryId",
+				CAT_SERVICES, "unitPrice", 5000, "unitCost", 3000, "active", true))
+			.map();
+		assertThat(p).containsEntry("name", "Dock").containsEntry("stock", null);
+		assertThat(m(p.get("category"))).containsEntry("name", "Services");
+
+		// Lines snapshot the cost; changing it later does not touch existing quotes.
+		Map<String, Object> q = expect(201, null, "POST", "/api/v1/quotes", as(RM1),
+				quoteBody("Q-DOCK", List.of(obj("productId", id, "quantity", 1, "description", "Desk"))))
+			.map();
+		Map<String, Object> line = at(q.get("items"), 0);
+		assertThat(line).containsEntry("title", "Dock").containsEntry("description", "Desk");
+		assertThat(text(line.get("unitPrice"))).isEqualTo("5000.00");
+		assertThat(text(line.get("unitCost"))).isEqualTo("3000.00");
+		expect(200, null, "PUT", "/api/v1/admin/products/" + id, adm, obj("name", "Dock", "categoryId", CAT_SERVICES,
+				"unitPrice", 5000, "unitCost", 4000, "active", false));
+		q = expect(200, null, "GET", "/api/v1/quotes/" + q.get("id"), as(RM1), null).map();
+		assertThat(text(at(q.get("items"), 0).get("unitCost"))).isEqualTo("3000.00");
+		assertThat(text(q.get("profit"))).isEqualTo("2000.00");
+
+		// Retired products cannot be put on lines.
+		Res retired = expect(400, "VALIDATION_ERROR", "POST", "/api/v1/quotes", as(RM1),
+				quoteBody("Q-RET", List.of(obj("productId", id, "quantity", 1))));
+		assertThat(retired.map()).containsEntry("details", List.of("items[0].productId is not an active product"));
+
+		Res used = expect(409, "CONFLICT", "POST", "/api/v1/admin/products/" + id + "/delete", adm, null);
+		assertThat(used.map()).containsEntry("message", "conflict: product is used on quotes; retire it instead");
+		expect(403, "FORBIDDEN", "POST", "/api/v1/admin/products/" + MOUSE + "/delete", as(WO), null);
+		Res done = raw("POST", "/api/v1/admin/products/" + MOUSE + "/delete", adm, "{nope");
+		assertThat(done.status()).as(done.raw()).isEqualTo(204);
+		assertThat(done.raw()).isEmpty();
+		Res gone = expect(404, "NOT_FOUND", "POST", "/api/v1/admin/products/" + MOUSE + "/delete", adm, null);
+		assertThat(gone.map()).containsEntry("message", "not found: product not found");
+		expect(404, "NOT_FOUND", "POST", "/api/v1/admin/products/nope/delete", adm, null);
+	}
+
+	@Test
+	void costIsHiddenFromCustomers() {
+		String[] q = sent("Q-COST");
+		Map<String, Object> internal = expect(200, null, "GET", "/api/v1/quotes/" + q[0], as(WOC), null).map();
+		assertThat(internal).containsKeys("costTotal", "profit");
+		assertThat(at(internal.get("items"), 0)).containsKeys("unitCost", "costTotal", "profit");
+
+		Res customer = expect(200, null, "GET", "/api/v1/quotes/" + q[0], as(ACME_BUYER), null);
+		Res link = expect(200, null, "GET", "/api/v1/public/quotes/" + q[1], null, null);
+		Res accepted = expect(200, null, "POST", "/api/v1/public/quotes/" + q[1] + "/accept", null,
+				obj("signerName", "A", "signatureDataUrl", "data:x"));
+		for (Res res : List.of(customer, link, accepted)) {
+			assertThat(res.raw()).doesNotContain("unitCost", "costTotal", "profit");
+			assertThat(at(res.map().get("items"), 0).keySet()).containsExactly("product", "title", "category",
+					"description", "quantity", "unitPrice", "discountType", "discountValue", "discountAmount",
+					"taxPercent", "lineTotal");
+		}
+		assertThat(customer.map().keySet()).containsExactly("id", "quoteNumber", "status", "clientId", "clientName",
+				"createdBy", "expiryDate", "subtotal", "discountAmount", "taxAmount", "grandTotal", "accessToken",
+				"signedBy", "signedAt", "items", "history");
+
+		// Lines saved before products existed have no cost: null for staff, and the quote has no profit.
+		this.jdbc.sql("UPDATE quote_items SET unit_cost = NULL, product_id = NULL WHERE position = 1").update();
+		Res legacy = expect(200, null, "GET", "/api/v1/quotes/" + q[0], as(RM1), null);
+		assertThat(legacy.map()).containsEntry("costTotal", null).containsEntry("profit", null);
+		assertThat(at(legacy.map().get("items"), 1)).containsEntry("product", null)
+			.containsEntry("unitCost", null)
+			.containsEntry("costTotal", null)
+			.containsEntry("profit", null);
+	}
+
+	@Test
+	void amountDiscounts() {
+		Map<String, Object> q = expect(201, null, "POST", "/api/v1/quotes", as(RM1), quoteBody("Q-AMOUNT",
+				List.of(obj("productId", LAPTOP, "quantity", 2, "discountType", "percent", "discountValue", 5),
+						obj("productId", MOUSE, "quantity", 10, "discountType", "amount", "discountValue", 400),
+						obj("productId", "00000000-0000-4000-8000-000000000041", "quantity", 12, "taxPercent", 0))))
+			.map();
+		// The mixed case from contracts/fixtures/pricing-cases.json.
+		assertThat(text(q.get("subtotal"))).isEqualTo("75900.00");
+		assertThat(text(q.get("discountAmount"))).isEqualTo("3690.00");
+		assertThat(text(q.get("grandTotal"))).isEqualTo("76970.70");
+		assertThat(text(q.get("costTotal"))).isEqualTo("57540.00");
+		assertThat(text(q.get("profit"))).isEqualTo("14670.00");
+		Map<String, Object> mouse = at(q.get("items"), 1);
+		assertThat(mouse).containsEntry("discountType", "amount");
+		assertThat(text(mouse.get("discountValue"))).isEqualTo("400.00");
+		assertThat(text(mouse.get("discountAmount"))).isEqualTo("400.00");
+		assertThat(text(mouse.get("lineTotal"))).isEqualTo("5500.00");
+		assertThat(at(q.get("items"), 2)).containsEntry("discountType", "percent");
+	}
+
+	@Test
+	void stockIsCheckedAndDeducted() {
+		String rm = as(RM1);
+		String id = (String) expect(201, null, "POST", "/api/v1/quotes", rm, quoteBody("Q-STOCK",
+				List.of(obj("productId", MOUSE, "quantity", 1), obj("productId", LAPTOP, "quantity", 20),
+						obj("productId", CONSULTING, "quantity", 500), obj("productId", LAPTOP, "quantity", 6))))
+			.map()
+			.get("id");
+		Res submit = expect(409, "CONFLICT", "POST", "/api/v1/quotes/" + id + "/submit", rm, null);
+		assertThat(submit.map()).containsEntry("message", "conflict: not enough stock for Laptop 14-inch (available 25)");
+
+		Map<String, Object> body = quoteBody("Q-STOCK", List.of(obj("productId", MOUSE, "quantity", 1),
+				obj("productId", LAPTOP, "quantity", 20), obj("productId", LAPTOP, "quantity", 2.5)));
+		expect(200, null, "PUT", "/api/v1/quotes/" + id, rm, body);
+		expect(200, null, "POST", "/api/v1/quotes/" + id + "/submit", rm, null);
+		expect(200, null, "POST", "/api/v1/quotes/" + id + "/approve", as(WO), null);
+		setStock(LAPTOP, "10");
+		Res send = expect(409, "CONFLICT", "POST", "/api/v1/quotes/" + id + "/send", rm, null);
+		assertThat(send.map()).containsEntry("message", "conflict: not enough stock for Laptop 14-inch (available 10)");
+		setStock(LAPTOP, "25");
+		String link = (String) expect(200, null, "POST", "/api/v1/quotes/" + id + "/send", rm, null).map()
+			.get("accessToken");
+
+		// Someone else sold laptops meanwhile: nothing changes, not even the mouse stock.
+		setStock(LAPTOP, "2.5");
+		Map<String, Object> sign = obj("signerName", "Alice", "signatureDataUrl", "data:x");
+		Res accept = expect(409, "CONFLICT", "POST", "/api/v1/quotes/" + id + "/accept", as(ACME_BUYER), sign);
+		assertThat(accept.map()).containsEntry("message", "conflict: not enough stock for Laptop 14-inch (available 2.5)");
+		Res pub = expect(409, "CONFLICT", "POST", "/api/v1/public/quotes/" + link + "/accept", null, sign);
+		assertThat(pub.map()).containsEntry("message", "conflict: not enough stock for Laptop 14-inch (available 2.5)");
+		assertThat(stock(MOUSE)).isEqualTo("200.00");
+		assertThat(expect(200, null, "GET", "/api/v1/quotes/" + id, rm, null).map()).containsEntry("status", "sent");
+
+		setStock(LAPTOP, "30");
+		expect(200, null, "POST", "/api/v1/public/quotes/" + link + "/accept", null, sign);
+		assertThat(stock(LAPTOP)).isEqualTo("7.50");
+		assertThat(stock(MOUSE)).isEqualTo("199.00");
+		assertThat(stock(CONSULTING)).isNull();
+
+		// Zero left is reported as 0.
+		setStock(LAPTOP, "0");
+		String other = (String) expect(201, null, "POST", "/api/v1/quotes", rm,
+				quoteBody("Q-STOCK2", List.of(obj("productId", LAPTOP, "quantity", 1))))
+			.map()
+			.get("id");
+		Res none = expect(409, "CONFLICT", "POST", "/api/v1/quotes/" + other + "/submit", rm, null);
+		assertThat(none.map()).containsEntry("message", "conflict: not enough stock for Laptop 14-inch (available 0)");
+	}
+
+	void setStock(String product, String stock) {
+		this.jdbc.sql("UPDATE products SET stock = CAST(:s AS numeric) WHERE id = CAST(:id AS uuid)")
+			.param("s", stock)
+			.param("id", product)
+			.update();
+	}
+
+	String stock(String product) {
+		BigDecimal s = this.jdbc.sql("SELECT stock FROM products WHERE id = CAST(:id AS uuid)")
+			.param("id", product)
+			.query((rs, n) -> rs.getBigDecimal(1))
+			.list()
+			.get(0);
+		return (s != null) ? s.toPlainString() : null;
+	}
+
+	record Download(int status, String contentType, String disposition, byte[] body) {
+	}
+
+	Download download(String path, String token) {
+		try {
+			HttpRequest.Builder req = HttpRequest.newBuilder(URI.create("http://localhost:" + this.port + path)).GET();
+			if (token != null) {
+				req.header("Authorization", "Bearer " + token);
+			}
+			HttpResponse<byte[]> res = http.send(req.build(), HttpResponse.BodyHandlers.ofByteArray());
+			return new Download(res.statusCode(), res.headers().firstValue("Content-Type").orElse(null),
+					res.headers().firstValue("Content-Disposition").orElse(null), res.body());
+		}
+		catch (IOException | InterruptedException ex) {
+			throw new IllegalStateException(ex);
+		}
+	}
+
+	@Test
+	void quotePdf() throws IOException {
+		String rm = as(RM1);
+		Map<String, Object> body = quoteBody("Q/PDF 1", List.of(
+				obj("productId", CONSULTING, "quantity", 3, "description", "ที่ปรึกษาระบบ ฉบับภาษาไทย น้ำ ผู้ใหญ่"),
+				obj("productId", MOUSE, "quantity", 2, "discountType", "amount", "discountValue", 80)));
+		String id = (String) expect(201, null, "POST", "/api/v1/quotes", rm, body).map().get("id");
+
+		Res draft = expect(409, "CONFLICT", "GET", "/api/v1/quotes/" + id + "/pdf", rm, null);
+		assertThat(draft.map()).containsEntry("message", "conflict: cannot export a quote that is draft");
+		expect(403, "FORBIDDEN", "GET", "/api/v1/quotes/" + id + "/pdf", as(ADMIN), null);
+		expect(404, "NOT_FOUND", "GET", "/api/v1/quotes/" + id + "/pdf", as("rm2@swiftquote.dev"), null);
+		expect(404, "NOT_FOUND", "GET", "/api/v1/quotes/" + UNKNOWN_ID + "/pdf", rm, null);
+		expect(401, "UNAUTHORIZED", "GET", "/api/v1/quotes/" + id + "/pdf", null, null);
+
+		expect(200, null, "POST", "/api/v1/quotes/" + id + "/submit", rm, null);
+		expect(200, null, "POST", "/api/v1/quotes/" + id + "/approve", as(WO), null);
+		Download approved = download("/api/v1/quotes/" + id + "/pdf", rm);
+		assertThat(approved.status()).isEqualTo(200);
+		assertThat(approved.contentType()).isEqualTo("application/pdf");
+		assertThat(approved.disposition()).isEqualTo("attachment; filename=\"Q_PDF_1.pdf\"");
+		assertThat(new String(approved.body(), 0, 5, java.nio.charset.StandardCharsets.ISO_8859_1)).isEqualTo("%PDF-");
+
+		String link = (String) expect(200, null, "POST", "/api/v1/quotes/" + id + "/send", rm, null).map()
+			.get("accessToken");
+		// Downloading never marks the quote viewed.
+		Download pub = download("/api/v1/public/quotes/" + link + "/pdf", null);
+		assertThat(pub.status()).isEqualTo(200);
+		assertThat(pub.disposition()).isEqualTo("attachment; filename=\"Q_PDF_1.pdf\"");
+		Download customer = download("/api/v1/quotes/" + id + "/pdf", as(ACME_BUYER));
+		assertThat(customer.status()).isEqualTo(200);
+		assertThat(expect(200, null, "GET", "/api/v1/quotes/" + id, rm, null).map()).containsEntry("status", "sent");
+		expect(404, "NOT_FOUND", "GET", "/api/v1/quotes/" + id + "/pdf", as("buyer@globex.example"), null);
+
+		expect(200, null, "POST", "/api/v1/public/quotes/" + link + "/accept", null,
+				obj("signerName", "สมชาย ใจดี", "signatureDataUrl", "data:x"));
+		Download signed = download("/api/v1/public/quotes/" + link + "/pdf", null);
+		assertThat(signed.status()).isEqualTo(200);
+		String dir = System.getProperty("swiftquote.pdf-dir");
+		if (dir != null) {
+			Files.write(Path.of(dir, "quote.pdf"), signed.body());
+		}
+
+		Res unknown = expect(404, "NOT_FOUND", "GET", "/api/v1/public/quotes/" + UNKNOWN_ID + "/pdf", null, null);
+		assertThat(unknown.map()).containsEntry("message", "not found: quote expired or not found");
+		String draftLink = (String) expect(201, null, "POST", "/api/v1/quotes", rm, quoteBody("Q-PDF-DRAFT")).map()
+			.get("accessToken");
+		expect(404, "NOT_FOUND", "GET", "/api/v1/public/quotes/" + draftLink + "/pdf", null, null);
 	}
 
 }

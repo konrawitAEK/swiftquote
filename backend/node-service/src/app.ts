@@ -20,14 +20,17 @@ import {
 } from './domain.js'
 import { goQuote, parseDate, pathUuid, unmarshal, type StructType } from './gojson.js'
 import { stringify } from './json.js'
+import { pdfFileName, renderQuotePdf } from './pdf.js'
 import type { Money } from './pricing.js'
 import type { Repository } from './repository.js'
-import type { AuthService, QuoteInput, QuoteService } from './services.js'
+import type { AuthService, QuoteDocument, QuoteInput, QuoteService } from './services.js'
 import {
   adminUserView,
+  audienceOf,
   categoryView,
   clientView,
   dashboardView,
+  productView,
   publicView,
   quoteDetail,
   quoteSummary,
@@ -75,8 +78,8 @@ const loginRequest: StructType = { name: 'loginRequest', fields: { email: str, p
 const quoteItemInput: StructType = {
   name: 'quoteItemInput',
   fields: {
-    title: str, categoryId: uuid, description: str, quantity: decimal, unitPrice: decimal,
-    discountPercent: decimal, taxPercent: decimal,
+    productId: uuid, description: str, quantity: decimal, unitPrice: decimal,
+    discountType: optStr, discountValue: decimal, taxPercent: decimal,
   },
 }
 const createQuoteRequest: StructType = {
@@ -99,6 +102,14 @@ const updateUserRequest: StructType = {
 const teamRequest: StructType = { name: 'teamRequest', fields: { name: str, woUserId: uuid } }
 const createCategoryRequest: StructType = { name: 'createCategoryRequest', fields: { name: str } }
 const updateCategoryRequest: StructType = { name: 'updateCategoryRequest', fields: { name: str, active: optBool } }
+const createProductRequest: StructType = {
+  name: 'createProductRequest',
+  fields: { name: str, categoryId: uuid, unitPrice: decimal, unitCost: decimal, stock: decimal },
+}
+const updateProductRequest: StructType = {
+  name: 'updateProductRequest',
+  fields: { name: str, categoryId: uuid, unitPrice: decimal, unitCost: decimal, stock: decimal, active: optBool },
+}
 
 /** Like Go's json.Unmarshal of the raw body: a malformed body is a 400 with Go's message. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -125,15 +136,24 @@ function toQuoteInput(body: Record<string, unknown>): QuoteInput {
     quoteNumber: body.quoteNumber as string,
     expiryDate: body.expiryDate as string | null,
     items: items.map((it) => ({
-      title: it.title as string,
-      categoryId: it.categoryId as string | null,
+      productId: it.productId as string | null,
       description: it.description as string,
       quantity: it.quantity as Money | null,
       unitPrice: it.unitPrice as Money | null,
-      discountPercent: it.discountPercent as Money | null,
+      discountType: it.discountType as string | null,
+      discountValue: it.discountValue as Money | null,
       taxPercent: it.taxPercent as Money | null,
     })),
   }
+}
+
+/** A quote PDF as an attachment named after the quote number. */
+async function sendPdf(reply: FastifyReply, d: QuoteDocument) {
+  const pdf = await renderQuotePdf(d.quote, d.vendorName)
+  return reply
+    .header('Content-Type', 'application/pdf')
+    .header('Content-Disposition', `attachment; filename="${pdfFileName(d.quote.quoteNumber)}"`)
+    .send(pdf)
 }
 
 /** Fiber's c.Query: the first value, "" when absent. */
@@ -179,6 +199,8 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
     origin: d.corsOrigins,
     allowedHeaders: ['Authorization', 'Content-Type'],
     methods: ['GET', 'POST', 'PUT', 'OPTIONS'],
+    // Lets browsers read the PDF filename on cross-origin downloads.
+    exposedHeaders: ['Content-Disposition'],
   })
 
   /** Validates the bearer token and loads the current actor. */
@@ -229,6 +251,7 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
 
   route('GET', `${api}/clients`, async (req) => (await d.clients.list(actor(req))).map(clientView))
   route('GET', `${api}/categories`, async (req) => (await d.catalog.list(actor(req))).map(categoryView))
+  route('GET', `${api}/products`, async (req) => (await d.catalog.listProducts(actor(req))).map(productView))
 
   route('GET', `${api}/quotes`, async (req) => {
     const a = actor(req)
@@ -245,15 +268,19 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
   route('POST', `${api}/quotes`, async (req, reply) => {
     const body = decode(req, createQuoteRequest)
     const q = await d.quotes.create(actor(req), toQuoteInput(body))
-    return reply.code(201).send(quoteDetail(q))
+    return reply.code(201).send(quoteDetail(q, audienceOf(actor(req).role)))
   })
 
-  route('GET', `${api}/quotes/:id`, async (req) => quoteDetail(await d.quotes.get(actor(req), pathUuid(req.params.id!))))
+  route('GET', `${api}/quotes/:id`, async (req) =>
+    quoteDetail(await d.quotes.get(actor(req), pathUuid(req.params.id!)), audienceOf(actor(req).role)))
 
   route('PUT', `${api}/quotes/:id`, async (req) => {
     const body = decode(req, createQuoteRequest)
-    return quoteDetail(await d.quotes.update(actor(req), pathUuid(req.params.id!), toQuoteInput(body)))
+    return quoteDetail(await d.quotes.update(actor(req), pathUuid(req.params.id!), toQuoteInput(body)), audienceOf(actor(req).role))
   })
+
+  route('GET', `${api}/quotes/:id/pdf`, async (req, reply) =>
+    sendPdf(reply, await d.quotes.document(actor(req), pathUuid(req.params.id!))))
 
   // Workflow steps that take an optional {"comment"} body.
   const actions: Record<string, (a: Actor, id: string, comment: string | null) => Promise<unknown>> = {
@@ -266,13 +293,15 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
   for (const [name, action] of Object.entries(actions)) {
     route('POST', `${api}/quotes/:id/${name}`, async (req) => {
       const comment = optionalComment(req)
-      return quoteDetail((await action(actor(req), pathUuid(req.params.id!), comment)) as Parameters<typeof quoteDetail>[0])
+      const q = (await action(actor(req), pathUuid(req.params.id!), comment)) as Parameters<typeof quoteDetail>[0]
+      return quoteDetail(q, audienceOf(actor(req).role))
     })
   }
 
   route('POST', `${api}/quotes/:id/accept`, async (req) => {
     const body = decode(req, acceptQuoteRequest)
-    return quoteDetail(await d.quotes.accept(actor(req), pathUuid(req.params.id!), body.signerName, body.signatureDataUrl))
+    const q = await d.quotes.accept(actor(req), pathUuid(req.params.id!), body.signerName, body.signatureDataUrl)
+    return quoteDetail(q, audienceOf(actor(req).role))
   })
 
   route('GET', `${api}/dashboard/summary`, async (req) => {
@@ -347,6 +376,27 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
     return reply.code(204).send()
   })
 
+  route('POST', `${api}/admin/products`, async (req, reply) => {
+    const b = decode(req, createProductRequest)
+    const p = await d.catalog.createProduct(actor(req), {
+      name: b.name, categoryId: b.categoryId, unitPrice: b.unitPrice, unitCost: b.unitCost, stock: b.stock, active: null,
+    })
+    return reply.code(201).send(productView(p))
+  })
+
+  route('PUT', `${api}/admin/products/:id`, async (req) => {
+    const b = decode(req, updateProductRequest)
+    const p = await d.catalog.updateProduct(actor(req), pathUuid(req.params.id!), {
+      name: b.name, categoryId: b.categoryId, unitPrice: b.unitPrice, unitCost: b.unitCost, stock: b.stock, active: b.active,
+    })
+    return productView(p)
+  })
+
+  route('POST', `${api}/admin/products/:id/delete`, async (req, reply) => {
+    await d.catalog.deleteProduct(actor(req), pathUuid(req.params.id!))
+    return reply.code(204).send()
+  })
+
   // Share-link routes; a malformed token is reported like an unknown one.
   route(
     'GET',
@@ -356,11 +406,19 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
   )
 
   route(
+    'GET',
+    `${api}/public/quotes/:accessToken/pdf`,
+    async (req, reply) => sendPdf(reply, await d.quotes.publicDocument(pathUuid(req.params.accessToken!))),
+    false,
+  )
+
+  route(
     'POST',
     `${api}/public/quotes/:accessToken/accept`,
     async (req) => {
       const b = decode(req, acceptQuoteRequest)
-      return quoteDetail(await d.quotes.acceptPublic(pathUuid(req.params.accessToken!), b.signerName, b.signatureDataUrl))
+      const q = await d.quotes.acceptPublic(pathUuid(req.params.accessToken!), b.signerName, b.signatureDataUrl)
+      return quoteDetail(q, 'customer')
     },
     false,
   )
@@ -370,7 +428,7 @@ export async function buildApp(d: Deps): Promise<FastifyInstance> {
     `${api}/public/quotes/:accessToken/reject`,
     async (req) => {
       const comment = optionalComment(req)
-      return quoteDetail(await d.quotes.rejectPublic(pathUuid(req.params.accessToken!), comment))
+      return quoteDetail(await d.quotes.rejectPublic(pathUuid(req.params.accessToken!), comment), 'customer')
     },
     false,
   )

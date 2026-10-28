@@ -73,7 +73,7 @@ public class CatalogService {
 		return this.repo.get(a.tenantId(), id).orElseThrow();
 	}
 
-	/** Removes a category no quote line uses; used ones are retired (active false) instead. */
+	/** Removes a category no quote line or product uses; used ones are retired (active false) instead. */
 	public void delete(Actor a, UUID id) {
 		if (!Roles.ADMIN.equals(a.role())) {
 			throw ApiException.roleForbidden();
@@ -84,12 +84,19 @@ public class CatalogService {
 		if (this.repo.isUsed(id)) {
 			throw inUse();
 		}
+		if (this.repo.hasProducts(id)) {
+			throw hasProducts();
+		}
 		try {
 			this.repo.delete(a.tenantId(), id);
 		}
 		catch (CatalogRepository.InUseException ex) {
-			throw inUse();
+			throw this.repo.isUsed(id) ? inUse() : hasProducts();
 		}
+	}
+
+	private static ApiException hasProducts() {
+		return ApiException.conflict("category is used by products; move them to another category first");
 	}
 
 	private static ApiException inUse() {

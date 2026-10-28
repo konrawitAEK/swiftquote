@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import type { Observable } from 'rxjs';
 import { API_URL } from '../core/api';
-import type { Client, CreateQuoteRequest, ProductCategory, QuoteDetail } from '../models';
+import type { Client, CreateQuoteRequest, Product, QuoteDetail } from '../models';
 
 const quoteUrl = (id: string) => `${API_URL}/quotes/${encodeURIComponent(id)}`;
 
@@ -11,8 +11,9 @@ const quoteUrl = (id: string) => `${API_URL}/quotes/${encodeURIComponent(id)}`;
 export class QuoteBuilderService {
   private readonly http = inject(HttpClient);
 
-  categories(): Observable<ProductCategory[]> {
-    return this.http.get<ProductCategory[]>(`${API_URL}/categories`);
+  /** Every product, including retired ones; only active products may go on a line. */
+  products(): Observable<Product[]> {
+    return this.http.get<Product[]>(`${API_URL}/products`);
   }
 
   clients(): Observable<Client[]> {

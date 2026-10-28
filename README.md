@@ -36,13 +36,22 @@ lands on its own home page.
 
 | Role | Email | Home | Can |
 |---|---|---|---|
-| Admin | `demo@swiftquote.dev` | `/admin` | Manage users, teams and product categories |
+| Back Office (role code `admin`) | `demo@swiftquote.dev` | `/settings` | Manage users, teams, product categories and products (price, cost, stock) |
 | WOC | `woc@swiftquote.dev` | `/dashboard` | See every quote and the sales dashboard |
 | WO | `wo@swiftquote.dev` (Team Alpha), `wo2@swiftquote.dev` (Team Beta) | `/quotes` | Approve or return their team's quotes |
-| RM | `rm1@`, `rm2@` (Alpha), `rm3@swiftquote.dev` (Beta) | `/quotes` | Create, edit, submit and send their own quotes |
+| RM | `rm1@`, `rm2@` (Alpha), `rm3@swiftquote.dev` (Beta) | `/quotes` | Create, edit, submit and send their own quotes from active products |
 | Customer | `buyer@acme.example`, `buyer@globex.example` | `/quotes` | See and sign their company's sent quotes |
 
 Workflow: draft → pending approval → approved → sent → viewed → accepted / rejected.
+
+- **Products:** quote lines are picked from Back Office's active products. The RM may change the unit price, and
+  each line's discount is either a percent or a baht amount.
+- **Cost and profit:** every role except the customer sees cost and profit; customers and the share link never
+  receive them.
+- **Stock:** stock is optional per product. It is checked on submit and send, and deducted when the customer
+  accepts.
+- **PDF:** staff can download the quote as a PDF from approved onwards, and the customer from the share link.
+  Fonts are Noto Sans and Noto Sans Thai (OFL).
 
 ## Backends
 

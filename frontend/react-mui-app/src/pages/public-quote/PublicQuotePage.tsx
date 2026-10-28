@@ -1,4 +1,5 @@
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import DownloadIcon from '@mui/icons-material/Download'
 import {
   Alert,
   Box,
@@ -40,6 +41,8 @@ export function PublicQuotePage() {
   const [acceptedAt, setAcceptedAt] = useState<string | null>(null)
   const [declining, setDeclining] = useState(false)
   const [declineReason, setDeclineReason] = useState('')
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
 
   useEffect(() => {
     publicQuoteService
@@ -52,6 +55,18 @@ export function PublicQuotePage() {
         }),
       )
   }, [accessToken])
+
+  const downloadPdf = async (quoteNumber: string) => {
+    setDownloading(true)
+    setDownloadError(null)
+    try {
+      await publicQuoteService.downloadPdf(accessToken, quoteNumber)
+    } catch (err) {
+      setDownloadError(errorText(err, 'Could not download the PDF', 'Cannot reach the server. Please try again.'))
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   const decline = async () => {
     setBusy(true)
@@ -99,17 +114,30 @@ export function PublicQuotePage() {
 
         {state.kind === 'ready' && (
           <Stack spacing={3}>
-            <Box>
-              <Typography variant="overline" color="text.secondary">
-                Quotation from
-              </Typography>
-              <Typography variant="h4" component="h1" sx={{ fontWeight: 700 }}>
-                {state.quote.vendorName}
-              </Typography>
-              <Typography color="text.secondary">
-                No. {state.quote.quoteNumber} · Valid until {state.quote.expiryDate}
-              </Typography>
-            </Box>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ justifyContent: 'space-between', alignItems: { sm: 'flex-end' } }}>
+              <Box>
+                <Typography variant="overline" color="text.secondary">
+                  Quotation from
+                </Typography>
+                <Typography variant="h4" component="h1" sx={{ fontWeight: 700 }}>
+                  {state.quote.vendorName}
+                </Typography>
+                <Typography color="text.secondary">
+                  No. {state.quote.quoteNumber} · Valid until {state.quote.expiryDate}
+                </Typography>
+              </Box>
+              <Box>
+                <Button
+                  variant="outlined"
+                  startIcon={<DownloadIcon />}
+                  disabled={downloading}
+                  onClick={() => downloadPdf(state.quote.quoteNumber)}
+                >
+                  {downloading ? 'Downloading…' : 'Download PDF'}
+                </Button>
+              </Box>
+            </Stack>
+            {downloadError && <Alert severity="error">{downloadError}</Alert>}
 
             <Card>
               <Box sx={{ overflowX: 'auto' }}>

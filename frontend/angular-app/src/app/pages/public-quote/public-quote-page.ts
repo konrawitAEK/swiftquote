@@ -3,12 +3,14 @@ import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { finalize } from 'rxjs';
 import { Alert } from '../../components/alert';
 import { SignaturePad } from '../../components/signature-pad';
 import { errorText } from '../../core/api';
+import { saveResponse } from '../../core/download';
 import { formatDateTime } from '../../core/format';
 import { formatMoney } from '../../core/pricing';
 import { PublicQuoteService } from '../../services/public-quote.service';
@@ -28,6 +30,7 @@ const OFFLINE = 'Cannot reach the server. Please try again.';
     MatButtonModule,
     MatCardModule,
     MatFormFieldModule,
+    MatIconModule,
     MatInputModule,
     MatProgressSpinnerModule,
     Alert,
@@ -66,10 +69,28 @@ export class PublicQuotePage {
   protected readonly acceptedAt = signal<string | null>(null);
   protected readonly declining = signal(false);
   protected readonly declineReason = signal('');
+  protected readonly downloading = signal(false);
+  protected readonly downloadError = signal<string | null>(null);
 
   protected readonly money = formatMoney;
   protected readonly when = formatDateTime;
   protected readonly valueOf = (e: Event) => (e.target as HTMLInputElement | HTMLTextAreaElement).value;
+
+  /** Saves the quotation as a PDF, named by the API's Content-Disposition, else <quoteNumber>.pdf. */
+  protected downloadPdf(quoteNumber: string): void {
+    this.downloading.set(true);
+    this.downloadError.set(null);
+    this.publicApi
+      .pdf(this.accessToken())
+      .pipe(
+        finalize(() => this.downloading.set(false)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (res) => saveResponse(res, `${quoteNumber}.pdf`),
+        error: (err: unknown) => this.downloadError.set(errorText(err, 'Could not download the PDF', OFFLINE)),
+      });
+  }
 
   protected decline(): void {
     this.busy.set(true);

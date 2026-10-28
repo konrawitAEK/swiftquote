@@ -12,6 +12,7 @@ import java.util.UUID;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.swiftquote.domain.Category;
 import com.swiftquote.domain.Client;
+import com.swiftquote.domain.Product;
 import com.swiftquote.domain.Quote;
 import com.swiftquote.domain.QuoteItem;
 import com.swiftquote.domain.Ref;
@@ -19,6 +20,7 @@ import com.swiftquote.repository.AdminRepository;
 import com.swiftquote.repository.DashboardRepository;
 import com.swiftquote.repository.QuoteRepository;
 import com.swiftquote.service.DashboardService;
+import com.swiftquote.service.Pricing;
 
 /**
  * Wire types mirroring contracts/openapi.yaml and backend/go-service/internal/delivery/http/dto.go byte for byte:
@@ -70,16 +72,44 @@ final class Dtos {
 
 	}
 
-	record QuoteItemView(String title, RefView category, String description, BigDecimal quantity,
-			BigDecimal unitPrice, BigDecimal discountPercent, BigDecimal taxPercent, BigDecimal lineTotal) {
+	/**
+	 * Marks a cost field that customers and the share link must not receive: the field is left out of the JSON
+	 * entirely (a null value is still written as null for internal roles).
+	 */
+	static final BigDecimal HIDDEN = new BigDecimal("0");
 
-		static List<QuoteItemView> of(List<QuoteItem> items) {
-			return items.stream()
-				.map((it) -> new QuoteItemView(it.title(), RefView.of(it.category()),
+	/** Jackson's CUSTOM inclusion filter: a value equal to this is omitted. Only {@link #HIDDEN} itself matches. */
+	static final class HiddenFilter {
+
+		@Override
+		public boolean equals(Object other) {
+			return other == HIDDEN;
+		}
+
+		@Override
+		public int hashCode() {
+			return 0;
+		}
+
+	}
+
+	record QuoteItemView(RefView product, String title, RefView category, String description, BigDecimal quantity,
+			BigDecimal unitPrice, String discountType, BigDecimal discountValue, BigDecimal discountAmount,
+			BigDecimal taxPercent, BigDecimal lineTotal,
+			@JsonInclude(value = JsonInclude.Include.CUSTOM, valueFilter = HiddenFilter.class) BigDecimal unitCost,
+			@JsonInclude(value = JsonInclude.Include.CUSTOM, valueFilter = HiddenFilter.class) BigDecimal costTotal,
+			@JsonInclude(value = JsonInclude.Include.CUSTOM, valueFilter = HiddenFilter.class) BigDecimal profit) {
+
+		static List<QuoteItemView> of(List<QuoteItem> items, boolean showCost) {
+			return items.stream().map((it) -> {
+				BigDecimal cost = (it.unitCost() != null) ? Pricing.costTotal(it.quantity(), it.unitCost()) : null;
+				return new QuoteItemView(RefView.of(it.product()), it.title(), RefView.of(it.category()),
 						it.description().isEmpty() ? null : it.description(), money(it.quantity()),
-						money(it.unitPrice()), money(it.discountPercent()), money(it.taxPercent()),
-						money(it.lineTotal())))
-				.toList();
+						money(it.unitPrice()), it.discountType(), money(it.discountValue()),
+						money(it.discountAmount()), money(it.taxPercent()), money(it.lineTotal()),
+						showCost ? optMoney(it.unitCost()) : HIDDEN, showCost ? optMoney(cost) : HIDDEN,
+						showCost ? ((cost != null) ? money(it.lineTotal().subtract(cost)) : null) : HIDDEN);
+			}).toList();
 		}
 
 	}
@@ -89,14 +119,28 @@ final class Dtos {
 
 	record QuoteDetail(UUID id, String quoteNumber, String status, UUID clientId, String clientName,
 			RefView createdBy, String expiryDate, BigDecimal subtotal, BigDecimal discountAmount,
-			BigDecimal taxAmount, BigDecimal grandTotal, UUID accessToken, String signedBy, String signedAt,
-			List<QuoteItemView> items, List<EventView> history) {
+			BigDecimal taxAmount, BigDecimal grandTotal,
+			@JsonInclude(value = JsonInclude.Include.CUSTOM, valueFilter = HiddenFilter.class) BigDecimal costTotal,
+			@JsonInclude(value = JsonInclude.Include.CUSTOM, valueFilter = HiddenFilter.class) BigDecimal profit,
+			UUID accessToken, String signedBy, String signedAt, List<QuoteItemView> items, List<EventView> history) {
 
-		static QuoteDetail of(Quote q) {
+		/** showCost is false for customers: costTotal, profit and the line cost fields are left out. */
+		static QuoteDetail of(Quote q, boolean showCost) {
+			BigDecimal costTotal = BigDecimal.ZERO;
+			for (QuoteItem it : q.items()) {
+				if (it.unitCost() == null) {
+					costTotal = null;
+					break;
+				}
+				costTotal = costTotal.add(Pricing.costTotal(it.quantity(), it.unitCost()));
+			}
+			BigDecimal profit = (costTotal != null)
+					? money(q.subtotal().subtract(q.discountAmount()).subtract(costTotal)) : null;
 			return new QuoteDetail(q.id(), q.quoteNumber(), q.status(), q.clientId(), q.clientName(),
 					RefView.of(q.createdBy()), date(q.expiryDate()), money(q.subtotal()), money(q.discountAmount()),
-					money(q.taxAmount()), money(q.grandTotal()), q.accessToken(), q.signedBy(),
-					timestamp(q.signedAt()), QuoteItemView.of(q.items()),
+					money(q.taxAmount()), money(q.grandTotal()), showCost ? optMoney(costTotal) : HIDDEN,
+					showCost ? profit : HIDDEN, q.accessToken(), q.signedBy(), timestamp(q.signedAt()),
+					QuoteItemView.of(q.items(), showCost),
 					q.history()
 						.stream()
 						.map((e) -> new EventView(e.action(), RefView.of(e.actor()), e.comment(), timestamp(e.at())))
@@ -112,7 +156,17 @@ final class Dtos {
 			Quote q = v.quote();
 			return new PublicQuoteView(q.quoteNumber(), q.status(), date(q.expiryDate()), q.signedBy(),
 					timestamp(q.signedAt()), v.vendorName(), v.vendorLogo(), money(q.grandTotal()),
-					QuoteItemView.of(q.items()));
+					QuoteItemView.of(q.items(), false));
+		}
+
+	}
+
+	record ProductView(UUID id, String name, RefView category, BigDecimal unitPrice, BigDecimal unitCost,
+			BigDecimal stock, boolean active) {
+
+		static ProductView of(Product p) {
+			return new ProductView(p.id(), p.name(), RefView.of(p.category()), money(p.unitPrice()),
+					money(p.unitCost()), optMoney(p.stock()), p.active());
 		}
 
 	}
@@ -198,6 +252,10 @@ final class Dtos {
 	/** Exactly two decimal places, half away from zero, like Go's decimal.StringFixed(2). */
 	static BigDecimal money(BigDecimal d) {
 		return d.setScale(2, RoundingMode.HALF_UP);
+	}
+
+	static BigDecimal optMoney(BigDecimal d) {
+		return (d != null) ? money(d) : null;
 	}
 
 	static String date(LocalDate d) {

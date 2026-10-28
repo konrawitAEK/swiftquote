@@ -5,7 +5,9 @@ import type {
   Actor,
   Category,
   Client,
+  DiscountType,
   EventAction,
+  Product,
   Quote,
   QuoteEvent,
   QuoteItem,
@@ -37,6 +39,16 @@ export function rfc3339(v: string): string {
 
 export class DuplicateError extends Error {}
 
+/** A tracked product the quote needs more of than is in stock. */
+export class StockError extends Error {
+  constructor(
+    readonly productName: string,
+    readonly available: Money,
+  ) {
+    super(`not enough stock for ${productName}`)
+  }
+}
+
 /** A delete blocked by a foreign key (a row was referenced after the service's checks). */
 export class InUseError extends Error {}
 
@@ -61,6 +73,7 @@ function ref(id: string | null, name: string | null): Ref | null {
 
 /** Decimals are sent in plain notation so Postgres never sees exponent forms it would reject. */
 const num = (d: Money) => d.toFixed()
+const optNum = (d: Money | null) => (d === null ? null : num(d))
 
 export interface Login {
   userId: string
@@ -179,7 +192,7 @@ export interface CategoryRow {
 const QUOTE_COLUMNS = `
   SELECT q.id, q.organization_id, q.client_id, c.name AS client_name, q.deal_id, q.quote_number, q.status,
     q.expiry_date, q.subtotal, q.discount_amount, q.tax_amount, q.grand_total, q.access_token,
-    q.signed_by, q.signature_data, q.signed_at,
+    q.signed_by, q.signature_data, q.signed_at, q.created_at,
     cb.id AS creator_id, cb.full_name AS creator_name, t.wo_user_id`
 
 const QUOTE_FROM = `
@@ -207,6 +220,7 @@ function mapQuote(r: Row): Quote {
     signedBy: r.signed_by,
     signatureData: r.signature_data,
     signedAt: r.signed_at,
+    createdAt: r.created_at,
     createdBy: ref(r.creator_id, r.creator_name),
     creatorTeamWo: r.wo_user_id,
     items: [],
@@ -242,6 +256,33 @@ const IS_PENDING = `(q.status IN ('sent', 'viewed') AND q.expiry_date >= (now() 
 const IS_SENT = `q.status IN ('sent', 'viewed', 'accepted', 'rejected')`
 // Line amount incl. VAT, rounded per line exactly like pricing, so categories add up to grand totals.
 const LINE_GROSS = `(i.line_total + round(i.line_total * i.tax_percent / 100, 2))`
+
+const PRODUCT_SELECT = `
+  SELECT p.id, p.name, p.unit_price, p.unit_cost, p.stock, p.active, c.id AS category_id, c.name AS category_name
+  FROM products p
+  JOIN product_categories c ON c.id = p.category_id`
+
+function mapProduct(r: Row): Product {
+  return {
+    id: r.id,
+    name: r.name,
+    category: { id: r.category_id, name: r.category_name },
+    unitPrice: new Money(r.unit_price),
+    unitCost: new Money(r.unit_cost),
+    stock: r.stock === null ? null : new Money(r.stock),
+    active: r.active,
+  }
+}
+
+/** The fields an admin sets on a product. */
+export interface ProductInput {
+  name: string
+  categoryId: string
+  unitPrice: Money
+  unitCost: Money
+  stock: Money | null
+  active: boolean
+}
 
 const measure = (count: unknown, amount: unknown): Measure => ({ count: Number(count), amount: new Money(String(amount)) })
 
@@ -370,6 +411,10 @@ export class Repository {
     return this.exists(`SELECT EXISTS (SELECT 1 FROM quote_items WHERE category_id = $1)`, [id])
   }
 
+  categoryHasProducts(_orgId: string, id: string): Promise<boolean> {
+    return this.exists(`SELECT EXISTS (SELECT 1 FROM products WHERE category_id = $1)`, [id])
+  }
+
   /** InUseError if a quote line references it. */
   async deleteCategory(orgId: string, id: string): Promise<void> {
     await deleting(() => this.pool.query(`DELETE FROM product_categories WHERE organization_id = $1 AND id = $2`, [orgId, id]))
@@ -381,6 +426,81 @@ export class Repository {
       [orgId],
     )
     return new Set(rows.map((r) => r.id as string))
+  }
+
+  // ---- products
+
+  async listProducts(orgId: string): Promise<Product[]> {
+    const { rows } = await this.pool.query(`${PRODUCT_SELECT} WHERE p.organization_id = $1 ORDER BY p.name, p.id`, [orgId])
+    return rows.map(mapProduct)
+  }
+
+  async getProduct(orgId: string, id: string): Promise<Product | null> {
+    const { rows } = await this.pool.query(`${PRODUCT_SELECT} WHERE p.organization_id = $1 AND p.id = $2`, [orgId, id])
+    return rows[0] ? mapProduct(rows[0]) : null
+  }
+
+  /** The tenant's active products by id. */
+  async activeProducts(orgId: string): Promise<Map<string, Product>> {
+    const { rows } = await this.pool.query(`${PRODUCT_SELECT} WHERE p.organization_id = $1 AND p.active`, [orgId])
+    return new Map(rows.map((r) => [r.id as string, mapProduct(r)]))
+  }
+
+  /** DuplicateError if the name exists in the tenant. */
+  async createProduct(orgId: string, id: string, in_: ProductInput): Promise<void> {
+    try {
+      await this.pool.query(
+        `INSERT INTO products (id, organization_id, category_id, name, unit_price, unit_cost, stock, active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [id, orgId, in_.categoryId, in_.name, num(in_.unitPrice), num(in_.unitCost), optNum(in_.stock), in_.active],
+      )
+    } catch (err) {
+      if (isUniqueViolation(err)) throw new DuplicateError()
+      throw err
+    }
+  }
+
+  async updateProduct(orgId: string, id: string, in_: ProductInput): Promise<void> {
+    try {
+      await this.pool.query(
+        `UPDATE products SET category_id = $3, name = $4, unit_price = $5, unit_cost = $6, stock = $7, active = $8
+         WHERE organization_id = $1 AND id = $2`,
+        [orgId, id, in_.categoryId, in_.name, num(in_.unitPrice), num(in_.unitCost), optNum(in_.stock), in_.active],
+      )
+    } catch (err) {
+      if (isUniqueViolation(err)) throw new DuplicateError()
+      throw err
+    }
+  }
+
+  productInUse(_orgId: string, id: string): Promise<boolean> {
+    return this.exists(`SELECT EXISTS (SELECT 1 FROM quote_items WHERE product_id = $1)`, [id])
+  }
+
+  /** InUseError if a quote line references it. */
+  async deleteProduct(orgId: string, id: string): Promise<void> {
+    await deleting(() => this.pool.query(`DELETE FROM products WHERE organization_id = $1 AND id = $2`, [orgId, id]))
+  }
+
+  /** The first tracked product (in line order) the quote needs more of than is in stock, or null. */
+  async stockShortage(quoteId: string): Promise<StockError | null> {
+    const { rows } = await this.pool.query(
+      `SELECT p.name, p.stock
+       FROM quote_items i
+       JOIN products p ON p.id = i.product_id
+       WHERE i.quote_id = $1 AND p.stock IS NOT NULL
+       GROUP BY p.id, p.name, p.stock
+       HAVING sum(i.quantity) > p.stock
+       ORDER BY min(i.position), p.id
+       LIMIT 1`,
+      [quoteId],
+    )
+    return rows[0] ? new StockError(rows[0].name, new Money(rows[0].stock)) : null
+  }
+
+  async organizationName(orgId: string): Promise<string> {
+    const { rows } = await this.pool.query(`SELECT name FROM organizations WHERE id = $1`, [orgId])
+    return rows[0]?.name ?? ''
   }
 
   // ---- quotes
@@ -501,7 +621,10 @@ export class Repository {
     })
   }
 
-  /** Records the signature like transition to accepted. */
+  /**
+   * Records the signature like transition to accepted and deducts stock for tracked products in the same
+   * transaction; StockError (and nothing changed) if a product no longer has enough.
+   */
   async accept(id: string, from: QuoteStatus[], signedBy: string, signatureData: string, ev: NewEvent): Promise<boolean> {
     return this.tx(async (c) => {
       const res = await c.query(
@@ -510,6 +633,7 @@ export class Repository {
         [id, signedBy, signatureData, ev.at, from],
       )
       if ((res.rowCount ?? 0) === 0) return false
+      await deductStock(c, id)
       await insertEvent(c, id, ev)
       return true
     })
@@ -518,23 +642,28 @@ export class Repository {
   private async items(quoteId: string): Promise<QuoteItem[]> {
     const { rows } = await this.pool.query(
       `SELECT i.id, i.title, COALESCE(i.description, '') AS description, i.quantity, i.unit_price,
-         i.discount_percent, i.tax_percent, i.line_total, c.id AS category_id, c.name AS category_name
+         i.discount_type, i.discount_value, i.tax_percent, i.line_total, i.unit_cost,
+         c.id AS category_id, c.name AS category_name, p.id AS product_id, p.name AS product_name
        FROM quote_items i
        LEFT JOIN product_categories c ON c.id = i.category_id
+       LEFT JOIN products p ON p.id = i.product_id
        WHERE i.quote_id = $1
        ORDER BY i.position, i.id`,
       [quoteId],
     )
     return rows.map((r) => ({
       id: r.id,
+      product: ref(r.product_id, r.product_name),
       title: r.title,
       category: ref(r.category_id, r.category_name),
       description: r.description,
       quantity: new Money(r.quantity),
       unitPrice: new Money(r.unit_price),
-      discountPercent: new Money(r.discount_percent),
+      discountType: r.discount_type as DiscountType,
+      discountValue: new Money(r.discount_value),
       taxPercent: new Money(r.tax_percent),
       lineTotal: new Money(r.line_total),
+      unitCost: r.unit_cost === null ? null : new Money(r.unit_cost),
     }))
   }
 
@@ -829,13 +958,40 @@ async function insertItems(c: pg.PoolClient, q: Quote): Promise<void> {
   for (const [i, it] of q.items.entries()) {
     await c.query(
       `INSERT INTO quote_items (id, quote_id, title, description, quantity, unit_price,
-         discount_percent, tax_percent, line_total, position, category_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+         discount_type, discount_value, tax_percent, line_total, position, category_id, product_id, unit_cost)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [
         it.id, q.id, it.title, it.description, num(it.quantity), num(it.unitPrice),
-        num(it.discountPercent), num(it.taxPercent), num(it.lineTotal), i, it.category?.id ?? null,
+        it.discountType, num(it.discountValue), num(it.taxPercent), num(it.lineTotal), i, it.category?.id ?? null,
+        it.product?.id ?? null, optNum(it.unitCost),
       ],
     )
+  }
+}
+
+/** Deducts each tracked product by the quote's total quantity of it, checking in line order. */
+async function deductStock(c: pg.PoolClient, quoteId: string): Promise<void> {
+  const { rows } = await c.query(
+    `SELECT i.product_id, sum(i.quantity) AS qty
+     FROM quote_items i
+     JOIN products p ON p.id = i.product_id
+     WHERE i.quote_id = $1 AND p.stock IS NOT NULL
+     GROUP BY i.product_id
+     ORDER BY min(i.position), i.product_id`,
+    [quoteId],
+  )
+  if (rows.length === 0) return
+  // Lock in id order so concurrent accepts cannot deadlock.
+  await c.query(`SELECT id FROM products WHERE id = ANY($1) ORDER BY id FOR UPDATE`, [rows.map((r) => r.product_id)])
+  for (const r of rows) {
+    const res = await c.query(
+      `UPDATE products SET stock = stock - $2 WHERE id = $1 AND stock IS NOT NULL AND stock >= $2`,
+      [r.product_id, r.qty],
+    )
+    if ((res.rowCount ?? 0) > 0) continue
+    const cur = await c.query(`SELECT name, stock FROM products WHERE id = $1`, [r.product_id])
+    if (cur.rows[0]?.stock == null) continue // no longer tracked
+    throw new StockError(cur.rows[0].name, new Money(cur.rows[0].stock))
   }
 }
 

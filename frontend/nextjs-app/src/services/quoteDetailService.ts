@@ -1,4 +1,5 @@
 import { http } from '@/lib/api/http'
+import { toPdfFile, withJsonErrorBody, type PdfFile } from '@/lib/api/pdf'
 import type { AcceptQuoteRequest, CommentRequest, QuoteDetail } from '@/models'
 
 type Comment = CommentRequest['comment']
@@ -27,5 +28,13 @@ export const quoteDetailService = {
   async accept(id: string, body: AcceptQuoteRequest): Promise<QuoteDetail> {
     const { data } = await http.post<QuoteDetail>(`${quotePath(id)}/accept`, body)
     return data
+  },
+  /** The quote as a PDF (approved and later; never contains cost). */
+  async downloadPdf(id: string, quoteNumber: string): Promise<PdfFile> {
+    try {
+      return toPdfFile(await http.get<Blob>(`${quotePath(id)}/pdf`, { responseType: 'blob' }), `${quoteNumber}.pdf`)
+    } catch (e) {
+      throw await withJsonErrorBody(e)
+    }
   },
 }

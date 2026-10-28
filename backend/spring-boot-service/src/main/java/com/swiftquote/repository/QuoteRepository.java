@@ -1,6 +1,7 @@
 package com.swiftquote.repository;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -38,6 +39,29 @@ public class QuoteRepository {
 
 		StateConflictException() {
 			super("conflict");
+		}
+
+	}
+
+	/** A tracked product has less stock than the quote needs; available is its current stock. */
+	public static final class StockShortageException extends RuntimeException {
+
+		private final String productName;
+
+		private final BigDecimal available;
+
+		StockShortageException(String productName, BigDecimal available) {
+			super("not enough stock");
+			this.productName = productName;
+			this.available = available;
+		}
+
+		public String productName() {
+			return this.productName;
+		}
+
+		public BigDecimal available() {
+			return this.available;
 		}
 
 	}
@@ -153,21 +177,24 @@ public class QuoteRepository {
 		for (int i = 0; i < items.size(); i++) {
 			QuoteItem it = items.get(i);
 			this.jdbc.sql("""
-					INSERT INTO quote_items (id, quote_id, title, description, quantity, unit_price,
-						discount_percent, tax_percent, line_total, position, category_id)
-					VALUES (:id, :quote, :title, :description, :quantity, :unitPrice,
-						:discount, :tax, :lineTotal, :position, :category)""")
+					INSERT INTO quote_items (id, quote_id, title, description, quantity, unit_price, discount_type,
+						discount_value, tax_percent, line_total, position, category_id, product_id, unit_cost)
+					VALUES (:id, :quote, :title, :description, :quantity, :unitPrice, :discountType,
+						:discountValue, :tax, :lineTotal, :position, :category, :product, :unitCost)""")
 				.param("id", it.id())
 				.param("quote", q.id())
 				.param("title", it.title())
 				.param("description", it.description())
 				.param("quantity", it.quantity())
 				.param("unitPrice", it.unitPrice())
-				.param("discount", it.discountPercent())
+				.param("discountType", it.discountType())
+				.param("discountValue", it.discountValue())
 				.param("tax", it.taxPercent())
 				.param("lineTotal", it.lineTotal())
 				.param("position", i)
 				.param("category", (it.category() != null) ? it.category().id() : null)
+				.param("product", (it.product() != null) ? it.product().id() : null)
+				.param("unitCost", it.unitCost())
 				.update();
 		}
 	}
@@ -263,7 +290,10 @@ public class QuoteRepository {
 		});
 	}
 
-	/** Records the signature like a transition to accepted. */
+	/**
+	 * Records the signature like a transition to accepted and, in the same transaction, deducts the quote's
+	 * quantities from tracked products (StockShortageException and nothing changes if one has too little).
+	 */
 	public void accept(UUID id, List<String> from, String signedBy, String signatureData, NewEvent ev) {
 		this.tx.executeWithoutResult((status) -> {
 			int rows = this.jdbc.sql("""
@@ -278,22 +308,88 @@ public class QuoteRepository {
 			if (rows == 0) {
 				throw new StateConflictException();
 			}
+			List<StockNeed> needs = trackedNeeds(id);
+			if (!needs.isEmpty()) {
+				// Lock in id order so concurrent accepts sharing products cannot deadlock; check in line order.
+				this.jdbc.sql("SELECT id FROM products WHERE id IN (:ids) ORDER BY id FOR UPDATE")
+					.param("ids", needs.stream().map(StockNeed::productId).toList())
+					.query((rs, n) -> Rows.uuid(rs, 1))
+					.list();
+			}
+			for (StockNeed need : needs) {
+				int updated = this.jdbc.sql("UPDATE products SET stock = stock - :qty WHERE id = :id AND stock >= :qty")
+					.param("id", need.productId())
+					.param("qty", need.quantity())
+					.update();
+				if (updated == 0) {
+					BigDecimal available = this.jdbc.sql("SELECT stock FROM products WHERE id = :id")
+						.param("id", need.productId())
+						.query(BigDecimal.class)
+						.single();
+					throw new StockShortageException(need.productName(), available);
+				}
+			}
 			insertEvent(id, ev);
 		});
 	}
 
+	/**
+	 * The first tracked product, in line order, whose total quantity on the quote exceeds its current stock.
+	 */
+	public Optional<StockShortageException> stockShortage(UUID quoteId) {
+		return trackedNeeds(quoteId).stream()
+			.filter((n) -> n.quantity().compareTo(n.stock()) > 0)
+			.findFirst()
+			.map((n) -> new StockShortageException(n.productName(), n.stock()));
+	}
+
+	/** The quote's summed quantity per stock-tracked product, in order of first appearance. */
+	private List<StockNeed> trackedNeeds(UUID quoteId) {
+		return this.jdbc.sql("""
+				SELECT p.id, p.name, p.stock, SUM(i.quantity)
+				FROM quote_items i
+				JOIN products p ON p.id = i.product_id
+				WHERE i.quote_id = :quote AND p.stock IS NOT NULL
+				GROUP BY p.id, p.name, p.stock
+				ORDER BY MIN(i.position), p.id""")
+			.param("quote", quoteId)
+			.query((rs, n) -> new StockNeed(Rows.uuid(rs, 1), rs.getString(2), rs.getBigDecimal(3),
+					rs.getBigDecimal(4)))
+			.list();
+	}
+
+	private record StockNeed(UUID productId, String productName, BigDecimal stock, BigDecimal quantity) {
+	}
+
+	/** The tenant's name, shown as the vendor. */
+	public String organizationName(UUID orgId) {
+		return this.jdbc.sql("SELECT name FROM organizations WHERE id = :org")
+			.param("org", orgId)
+			.query(String.class)
+			.single();
+	}
+
 	private List<QuoteItem> items(UUID quoteId) {
 		return this.jdbc.sql("""
-				SELECT i.id, i.title, COALESCE(i.description, ''), i.quantity, i.unit_price, i.discount_percent,
-					i.tax_percent, i.line_total, c.id, c.name
+				SELECT i.id, i.title, COALESCE(i.description, ''), i.quantity, i.unit_price, i.discount_type,
+					i.discount_value, i.tax_percent, i.line_total, c.id, c.name, p.id, p.name, i.unit_cost
 				FROM quote_items i
 				LEFT JOIN product_categories c ON c.id = i.category_id
+				LEFT JOIN products p ON p.id = i.product_id
 				WHERE i.quote_id = :quote
 				ORDER BY i.position, i.id""")
 			.param("quote", quoteId)
-			.query((rs, n) -> new QuoteItem(Rows.uuid(rs, 1), rs.getString(2),
-					Ref.of(Rows.uuid(rs, 9), rs.getString(10)), rs.getString(3), rs.getBigDecimal(4),
-					rs.getBigDecimal(5), rs.getBigDecimal(6), rs.getBigDecimal(7), rs.getBigDecimal(8)))
+			.query((rs, n) -> {
+				BigDecimal quantity = rs.getBigDecimal(4);
+				BigDecimal unitPrice = rs.getBigDecimal(5);
+				BigDecimal lineTotal = rs.getBigDecimal(9);
+				// The discount in money is whatever separates the rounded gross from the stored line total.
+				BigDecimal discount = quantity.multiply(unitPrice).setScale(2, RoundingMode.HALF_UP).subtract(lineTotal);
+				return new QuoteItem(Rows.uuid(rs, 1), Ref.of(Rows.uuid(rs, 12), rs.getString(13)), rs.getString(2),
+						Ref.of(Rows.uuid(rs, 10), rs.getString(11)), rs.getString(3), quantity, unitPrice,
+						rs.getString(6), rs.getBigDecimal(7), discount, rs.getBigDecimal(8), lineTotal,
+						rs.getBigDecimal(14));
+			})
 			.list();
 	}
 

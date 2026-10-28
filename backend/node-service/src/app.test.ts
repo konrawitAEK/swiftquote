@@ -19,6 +19,11 @@ const RM1_USER = '00000000-0000-4000-8000-000000000012'
 const ADMIN_USER = '00000000-0000-4000-8000-000000000002'
 const CAT_SOFTWARE = '00000000-0000-4000-8000-000000000030'
 const CAT_SERVICES = '00000000-0000-4000-8000-000000000031'
+const CAT_HARDWARE = '00000000-0000-4000-8000-000000000032'
+const PROD_CRM = '00000000-0000-4000-8000-000000000040' // Software, 4500 / cost 1800, untracked
+const PROD_CONSULTING = '00000000-0000-4000-8000-000000000043' // Services, 2000 / cost 900, untracked
+const PROD_LAPTOP = '00000000-0000-4000-8000-000000000044' // Hardware, 32900 / cost 26500, stock 25
+const PROD_MOUSE = '00000000-0000-4000-8000-000000000045' // Hardware, 590 / cost 310, stock 200
 const UNKNOWN = '00000000-0000-4000-8000-0000000000ff'
 
 const RM1 = 'rm1@swiftquote.dev'
@@ -44,8 +49,17 @@ const quoteBody = (quoteNumber: string): Json => ({
   quoteNumber,
   expiryDate: inAMonth(),
   items: [
-    { title: 'Consulting', categoryId: CAT_SERVICES, quantity: 2, unitPrice: 100, discountPercent: 10 },
-    { title: 'Setup fee', categoryId: CAT_SOFTWARE, quantity: 1, unitPrice: 1.5 },
+    { productId: PROD_CONSULTING, quantity: 2, unitPrice: 100, discountValue: 10 },
+    { productId: PROD_CRM, quantity: 1, unitPrice: 1.5 },
+  ],
+})
+
+/** A quote of laptops and mice at list price (tracked stock). */
+const stockBody = (quoteNumber: string, laptops: number, mice = 1): Json => ({
+  ...quoteBody(quoteNumber),
+  items: [
+    { productId: PROD_MOUSE, quantity: mice },
+    { productId: PROD_LAPTOP, quantity: laptops },
   ],
 })
 
@@ -90,7 +104,9 @@ describe.skipIf(!DB_URL)('API (Postgres)', () => {
       headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
       payload: raw ?? (body === undefined ? undefined : JSON.stringify(body)),
     })
-    return { status: res.statusCode, raw: res.body, json: res.body ? (JSON.parse(res.body) as Json) : {}, headers: res.headers }
+    const isJson = String(res.headers['content-type'] ?? '').startsWith('application/json')
+    const json = isJson && res.body ? (JSON.parse(res.body) as Json) : {}
+    return { status: res.statusCode, raw: res.body, json, headers: res.headers, bytes: res.rawPayload }
   }
 
   /** Logs in once per email (password "password") and returns the token. */
@@ -140,6 +156,14 @@ describe.skipIf(!DB_URL)('API (Postgres)', () => {
     expect(q).toMatchObject({ status: 'draft', clientId: ACME_CLIENT, clientName: 'Acme Corporation', expiryDate: inAMonth() })
     expect(q.createdBy).toEqual({ id: RM1_USER, name: 'Nok Rattana' })
     expect(q.items[0].category).toEqual({ id: CAT_SERVICES, name: 'Services' })
+    expect(q.items[0]).toMatchObject({ product: { id: PROD_CONSULTING, name: 'Consulting (per hour)' }, title: 'Consulting (per hour)' })
+    expect(Object.keys(q.items[0])).toEqual(['product', 'title', 'category', 'description', 'quantity', 'unitPrice',
+      'discountType', 'discountValue', 'discountAmount', 'taxPercent', 'lineTotal', 'unitCost', 'costTotal', 'profit'])
+    // Cost 2 x 900 + 1 x 1800 = 3600; profit = 181.50 - 3600.
+    for (const s of ['"discountType":"percent","discountValue":10.00,"discountAmount":20.00', '"unitCost":900.00',
+      '"costTotal":1800.00,"profit":-1620.00', '"grandTotal":194.21,"costTotal":3600.00,"profit":-3418.50,"accessToken"']) {
+      expect(created.raw).toContain(s)
+    }
     expect(actions(q)).toEqual(['created'])
     expect(q.history[0].at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/)
 
@@ -157,7 +181,7 @@ describe.skipIf(!DB_URL)('API (Postgres)', () => {
     expect(q.history[2]).toMatchObject({ action: 'returned', comment: 'Discount too high', actor: { id: WO_USER, name: 'Somchai Wong' } })
 
     const body = quoteBody('Q-001')
-    body.items = [{ title: 'Consulting', categoryId: CAT_SERVICES, quantity: 2, unitPrice: 100, discountPercent: 5 }]
+    body.items = [{ productId: PROD_CONSULTING, quantity: 2, unitPrice: 100, discountValue: 5 }]
     const edited = await call('PUT', `/api/v1/quotes/${id}`, rm, body)
     expect(edited.raw).toContain('"grandTotal":203.30')
 
@@ -172,14 +196,21 @@ describe.skipIf(!DB_URL)('API (Postgres)', () => {
     await expectStatus(404, 'NOT_FOUND', 'GET', `/api/v1/quotes/${id}`, await as('buyer@globex.example'))
     const customer = await as(ACME_BUYER)
     expect((await call('GET', '/api/v1/quotes', customer)).json).toHaveLength(1)
-    q = await expectStatus(200, '', 'GET', `/api/v1/quotes/${id}`, customer)
+    const viewed = await call('GET', `/api/v1/quotes/${id}`, customer)
+    q = viewed.json
     expect(q.status).toBe('viewed')
+    // Cost and profit are omitted for customers, not just null.
+    expect(viewed.raw).not.toMatch(/unitCost|costTotal|profit/)
+    expect(Object.keys(q.items[0])).toEqual(['product', 'title', 'category', 'description', 'quantity', 'unitPrice',
+      'discountType', 'discountValue', 'discountAmount', 'taxPercent', 'lineTotal'])
     expect(actions(q)).toEqual(['sent', 'viewed'])
 
     const forbidden = await expectStatus(403, 'FORBIDDEN', 'POST', `/api/v1/quotes/${id}/accept`, rm, sign)
     expect(forbidden.message).toBe('forbidden: your role cannot perform this action')
-    q = await expectStatus(200, '', 'POST', `/api/v1/quotes/${id}/accept`, customer, sign)
+    const accepted = await call('POST', `/api/v1/quotes/${id}/accept`, customer, sign)
+    q = accepted.json
     expect(q).toMatchObject({ status: 'accepted', signedBy: 'Alice Acme' })
+    expect(accepted.raw).not.toMatch(/unitCost|costTotal|profit/)
     expect(q.signedAt).toMatch(/Z$/)
     const again = await expectStatus(409, 'CONFLICT', 'POST', `/api/v1/quotes/${id}/accept`, customer, sign)
     expect(again.message).toBe('conflict: cannot accept a quote that is accepted')
@@ -248,10 +279,13 @@ describe.skipIf(!DB_URL)('API (Postgres)', () => {
 
     const v = await call('GET', `/api/v1/public/quotes/${link}`)
     expect(v.status).toBe(200)
+    expect(v.raw).not.toMatch(/unitCost|costTotal|profit/)
     expect(v.raw).toContain('"vendorLogo":null')
     expect(v.json).toMatchObject({ status: 'viewed', vendorName: 'Demo Co., Ltd.', signedBy: null })
-    const q = await expectStatus(200, '', 'POST', `/api/v1/public/quotes/${link}/reject`, undefined, { comment: 'Too expensive' })
+    const rejected = await call('POST', `/api/v1/public/quotes/${link}/reject`, undefined, { comment: 'Too expensive' })
+    const q = rejected.json
     expect(q.status).toBe('rejected')
+    expect(rejected.raw).not.toMatch(/unitCost|costTotal|profit/)
     expect(actions(q)).toEqual(['sent', 'viewed', 'rejected'])
     expect(q.history.at(-1)).toMatchObject({ comment: 'Too expensive', actor: null })
     const res = await expectStatus(409, 'CONFLICT', 'POST', `/api/v1/public/quotes/${link}/accept`, undefined,
@@ -472,6 +506,7 @@ describe.skipIf(!DB_URL)('API (Postgres)', () => {
 
     let c = await expectStatus(201, '', 'POST', '/api/v1/admin/categories', adm, { name: ' Training ' })
     expect(c).toMatchObject({ name: 'Training', active: true })
+    const training = c.id
     const dup = await expectStatus(409, 'CONFLICT', 'POST', '/api/v1/admin/categories', adm, { name: 'Software' })
     expect(dup.message).toBe('conflict: category "Software" already exists')
     await expectStatus(400, 'VALIDATION_ERROR', 'POST', '/api/v1/admin/categories', adm, { name: '' })
@@ -487,16 +522,23 @@ describe.skipIf(!DB_URL)('API (Postgres)', () => {
     expect((await call('GET', '/api/v1/categories', rm)).json).toHaveLength(4)
     await expectStatus(403, 'FORBIDDEN', 'GET', '/api/v1/categories', await as(WO))
 
-    let res = await expectStatus(400, 'VALIDATION_ERROR', 'POST', '/api/v1/quotes', rm, quoteBody('Q-CAT'))
-    expect(res.details).toEqual(['items[1].categoryId is not an active category'])
-    const body = quoteBody('Q-CAT')
-    body.items = [{ title: 'x', quantity: 1, unitPrice: 1 }]
-    res = await expectStatus(400, 'VALIDATION_ERROR', 'POST', '/api/v1/quotes', rm, body)
-    expect(res.details).toEqual(['items[0].categoryId is required'])
+    // A product added to a retired category is refused.
+    const retired = await expectStatus(400, 'VALIDATION_ERROR', 'POST', '/api/v1/admin/products', adm,
+      { name: 'Box', categoryId: CAT_SOFTWARE, unitPrice: 1, unitCost: 1 })
+    expect(retired.details).toEqual(['categoryId is not an active category'])
 
-    body.items = [{ title: 'Workshop', categoryId: CAT_SERVICES, quantity: 1, unitPrice: 10 }]
-    const q = await expectStatus(201, '', 'POST', '/api/v1/quotes', rm, body)
-    expect(q.items[0].category.name).toBe('Services')
+    // A category used by products (but not on quotes) cannot be deleted.
+    const t = await expectStatus(201, '', 'POST', '/api/v1/admin/products', adm,
+      { name: 'Workshop', categoryId: training, unitPrice: 10, unitCost: 4 })
+    const blocked = await call('POST', `/api/v1/admin/categories/${training}/delete`, adm)
+    expect([blocked.status, blocked.json.message]).toEqual(
+      [409, 'conflict: category is used by products; move them to another category first'])
+    // Used on quotes is reported first.
+    const q = await expectStatus(201, '', 'POST', '/api/v1/quotes', rm,
+      { ...quoteBody('Q-CAT'), items: [{ productId: t.id, quantity: 1 }] })
+    expect(q.items[0]).toMatchObject({ title: 'Workshop', category: { id: training, name: 'Training' }, unitPrice: 10 })
+    const onQuotes = await call('POST', `/api/v1/admin/categories/${training}/delete`, adm)
+    expect([onQuotes.status, onQuotes.json.message]).toEqual([409, 'conflict: category is used on quotes; retire it instead'])
   })
 
   it('maps errors like the Go service', async () => {
@@ -513,12 +555,25 @@ describe.skipIf(!DB_URL)('API (Postgres)', () => {
       ['invalid status filter', 'GET', '/api/v1/quotes?status=bogus', rm, undefined, 400, 'VALIDATION_ERROR',
         'request validation failed', ['status "bogus" is not a valid QuoteStatus']],
       ['duplicate number', 'POST', '/api/v1/quotes', rm, quoteBody('Q-DUP'), 409, 'CONFLICT', 'conflict: quoteNumber "Q-DUP" already exists'],
-      ['missing fields', 'POST', '/api/v1/quotes', rm, { quoteNumber: ' ', items: [{ title: '' }] }, 400, 'VALIDATION_ERROR',
-        'request validation failed', ['clientId is required', 'expiryDate is required', 'items[0].categoryId is required',
-          'items[0].quantity is required', 'items[0].unitPrice is required']],
+      ['missing fields', 'POST', '/api/v1/quotes', rm, { quoteNumber: ' ', items: [{ title: '', discountType: 'fixed' }] }, 400,
+        'VALIDATION_ERROR', 'request validation failed', ['clientId is required', 'expiryDate is required',
+          'items[0].productId is required', 'items[0].quantity is required',
+          'items[0].discountType "fixed" is not a valid DiscountType']],
       ['invalid values', 'POST', '/api/v1/quotes', rm, withField('items', [
-        { title: ' ', categoryId: CAT_SERVICES, quantity: 0.5, unitPrice: -1, discountPercent: 101 }]), 400, 'VALIDATION_ERROR',
-        'request validation failed', ['items[0].title is required', 'items[0]: quantity must be at least 1']],
+        { productId: PROD_CONSULTING, quantity: 0.5, unitPrice: -1, discountValue: 101 }]), 400, 'VALIDATION_ERROR',
+        'request validation failed', ['items[0]: quantity must be at least 1']],
+      ['unknown product then pricing', 'POST', '/api/v1/quotes', rm, { ...withField('items', [
+        { productId: UNKNOWN, quantity: 1 }, { productId: PROD_CRM, quantity: 1, discountValue: -1 }]), quoteNumber: '' }, 400,
+        'VALIDATION_ERROR', 'request validation failed', ['quoteNumber is required', 'items[0].productId is not an active product']],
+      ['amount above the line', 'POST', '/api/v1/quotes', rm, withField('items', [
+        { productId: PROD_CRM, quantity: 2, unitPrice: 50, discountType: 'amount', discountValue: 100.005 }]), 400,
+        'VALIDATION_ERROR', 'request validation failed', ['items[0]: discountValue must not exceed the line amount']],
+      ['percent above 100', 'POST', '/api/v1/quotes', rm, withField('items', [
+        { productId: PROD_CRM, quantity: 1, discountValue: 100.01 }]), 400,
+        'VALIDATION_ERROR', 'request validation failed', ['items[0]: discountValue must be between 0 and 100']],
+      ['discountType type', 'POST', '/api/v1/quotes', rm, withField('items', [{ productId: PROD_CRM, quantity: 1, discountType: 1 }]),
+        400, 'VALIDATION_ERROR', 'request validation failed',
+        ['malformed JSON body: json: cannot unmarshal number into Go struct field quoteItemInput.items.discountType of type string']],
       ['no items', 'POST', '/api/v1/quotes', rm, withField('items', []), 400, 'VALIDATION_ERROR', 'request validation failed',
         ['quote must have at least one item']],
       ['past expiry', 'POST', '/api/v1/quotes', rm, { ...withField('expiryDate', '2000-01-01'), quoteNumber: '' }, 400,
@@ -550,9 +605,196 @@ describe.skipIf(!DB_URL)('API (Postgres)', () => {
 
   it('keeps decimal input exact (no float rounding)', async () => {
     const body = quoteBody('Q-EXACT')
-    body.items = [{ title: 'Precise', categoryId: CAT_SERVICES, quantity: '3', unitPrice: 33.33, discountPercent: 15 }]
+    body.items = [{ productId: PROD_CONSULTING, quantity: '3', unitPrice: 33.33, discountValue: 15 }]
     const res = await call('POST', '/api/v1/quotes', await as(RM1), body)
     expect(res.status, res.raw).toBe(201)
     expect(res.raw).toContain('"grandTotal":90.94')
+  })
+  it('lists and manages products', async () => {
+    const adm = await as(ADMIN)
+    for (const email of [ADMIN, WOC, WO, RM1]) {
+      const res = await call('GET', '/api/v1/products', await as(email))
+      expect(res.status, email).toBe(200)
+      expect(res.json).toHaveLength(6)
+    }
+    const list = await call('GET', '/api/v1/products', await as(RM1))
+    expect(list.raw).toContain(`{"id":"${PROD_LAPTOP}","name":"Laptop 14-inch","category":{"id":"${CAT_HARDWARE}",`
+      + '"name":"Hardware"},"unitPrice":32900.00,"unitCost":26500.00,"stock":25.00,"active":true}')
+    expect(list.raw).toContain('"name":"Website redesign","category":{"id":"00000000-0000-4000-8000-000000000031","name":"Services"},'
+      + '"unitPrice":45000.00,"unitCost":28000.00,"stock":null,"active":true}')
+    expect((await call('GET', '/api/v1/products', await as(ACME_BUYER))).status).toBe(403)
+
+    const p = await call('POST', '/api/v1/admin/products', adm,
+      { name: '  USB-C dock ', categoryId: CAT_HARDWARE, unitPrice: 2490, unitCost: 1500.5, stock: 3.5 })
+    expect(p.status, p.raw).toBe(201)
+    expect(p.raw).toContain('"name":"USB-C dock","category":{"id":"00000000-0000-4000-8000-000000000032","name":"Hardware"},'
+      + '"unitPrice":2490.00,"unitCost":1500.50,"stock":3.50,"active":true}')
+    const untracked = await expectStatus(201, '', 'POST', '/api/v1/admin/products', adm,
+      { name: 'Training day', categoryId: CAT_SERVICES, unitPrice: 0, unitCost: 0, stock: null })
+    expect(untracked.stock).toBeNull()
+    const dup = await expectStatus(409, 'CONFLICT', 'POST', '/api/v1/admin/products', adm,
+      { name: 'Wireless mouse', categoryId: CAT_HARDWARE, unitPrice: 1, unitCost: 1 })
+    expect(dup.message).toBe('conflict: product "Wireless mouse" already exists')
+
+    const invalid: [string, Json, string[]][] = [
+      ['POST', {}, ['name is required', 'categoryId is required', 'unitPrice is required', 'unitCost is required']],
+      ['POST', { name: 'X', categoryId: CAT_HARDWARE, unitPrice: -1, unitCost: -0.01, stock: -1 },
+        ['unitPrice must not be negative', 'unitCost must not be negative', 'stock must not be negative']],
+      ['POST', { name: 'X', categoryId: UNKNOWN, unitPrice: 1, unitCost: 1 }, ['categoryId is not an active category']],
+      ['PUT', { name: 'X', categoryId: CAT_HARDWARE, unitPrice: 1, unitCost: 1 }, ['active is required']],
+      ['PUT', { name: 'X', unitPrice: -1 }, ['categoryId is required', 'unitCost is required', 'unitPrice must not be negative',
+        'active is required']],
+      ['PUT', { name: ' ', categoryId: UNKNOWN, unitPrice: 1, unitCost: 1, active: true }, ['name is required']],
+    ]
+    for (const [method, body, details] of invalid) {
+      const url = method === 'POST' ? '/api/v1/admin/products' : `/api/v1/admin/products/${p.json.id}`
+      const res = await expectStatus(400, 'VALIDATION_ERROR', method as Method, url, adm, body)
+      expect(res.details, JSON.stringify(body)).toEqual(details)
+    }
+
+    const rm = await as(RM1)
+    await expectStatus(403, 'FORBIDDEN', 'POST', '/api/v1/admin/products', rm, { name: 'X' })
+    await expectStatus(403, 'FORBIDDEN', 'PUT', `/api/v1/admin/products/${UNKNOWN}`, rm, {})
+    await expectStatus(403, 'FORBIDDEN', 'POST', `/api/v1/admin/products/${UNKNOWN}/delete`, await as(WOC))
+    const missing = await expectStatus(404, 'NOT_FOUND', 'PUT', `/api/v1/admin/products/${UNKNOWN}`, adm, {})
+    expect(missing.message).toBe('not found: product not found')
+    const dupPut = await expectStatus(409, 'CONFLICT', 'PUT', `/api/v1/admin/products/${p.json.id}`, adm,
+      { name: 'Laptop 14-inch', categoryId: CAT_HARDWARE, unitPrice: 1, unitCost: 1, active: true })
+    expect(dupPut.message).toBe('conflict: product "Laptop 14-inch" already exists')
+
+    // A line keeps the cost it was saved with; retiring the product stops new lines using it.
+    const q = await expectStatus(201, '', 'POST', '/api/v1/quotes', rm,
+      { ...quoteBody('Q-PROD'), items: [{ productId: p.json.id, quantity: 2, discountType: 'amount', discountValue: 90 }] })
+    expect(q.items[0]).toMatchObject({ title: 'USB-C dock', unitPrice: 2490, discountType: 'amount', discountValue: 90,
+      discountAmount: 90, lineTotal: 4890, unitCost: 1500.5, costTotal: 3001, profit: 1889 })
+    const put = await expectStatus(200, '', 'PUT', `/api/v1/admin/products/${p.json.id}`, adm,
+      { name: 'USB-C dock', categoryId: CAT_HARDWARE, unitPrice: 2590, unitCost: 1600, stock: null, active: false })
+    expect(put).toMatchObject({ unitPrice: 2590, unitCost: 1600, stock: null, active: false })
+    expect((await expectStatus(200, '', 'GET', `/api/v1/quotes/${q.id}`, rm)).items[0].unitCost).toBe(1500.5)
+    const retired = await expectStatus(400, 'VALIDATION_ERROR', 'POST', '/api/v1/quotes', rm,
+      { ...quoteBody('Q-RETIRED'), items: [{ productId: p.json.id, quantity: 1 }] })
+    expect(retired.details).toEqual(['items[0].productId is not an active product'])
+    expect((await call('GET', '/api/v1/products', rm)).json).toHaveLength(8)
+
+    // Delete: used on quotes, unknown, wrong method, then success with any body.
+    const del = (id: string, raw?: string) => call('POST', `/api/v1/admin/products/${id}/delete`, adm, undefined, raw)
+    let res = await del(p.json.id)
+    expect([res.status, res.json.message]).toEqual([409, 'conflict: product is used on quotes; retire it instead'])
+    res = await del(UNKNOWN)
+    expect([res.status, res.json.message]).toEqual([404, 'not found: product not found'])
+    res = await del('nope')
+    expect(res.status).toBe(404)
+    const wrong = await call('GET', `/api/v1/admin/products/${UNKNOWN}/delete`, adm)
+    expect([wrong.status, wrong.headers.allow]).toEqual([405, 'POST'])
+    const wrongList = await call('GET', '/api/v1/admin/products', adm)
+    expect([wrongList.status, wrongList.headers.allow]).toEqual([405, 'POST'])
+    res = await del(untracked.id, '{not json')
+    expect([res.status, res.raw]).toEqual([204, ''])
+    expect((await call('GET', '/api/v1/products', adm)).json).toHaveLength(7)
+  })
+
+  it('checks stock on submit and send and deducts it on accept', async () => {
+    const rm = await as(RM1)
+    const wo = await as(WO)
+    const stock = async (id: string) => (await pool.query('SELECT stock FROM products WHERE id = $1', [id])).rows[0].stock
+
+    // Submit: the quote's total per product, first failing product in line order.
+    let id = await expectStatus(201, '', 'POST', '/api/v1/quotes', rm, stockBody('Q-S1', 26)).then((q) => q.id)
+    let res = await expectStatus(409, 'CONFLICT', 'POST', `/api/v1/quotes/${id}/submit`, rm)
+    expect(res.message).toBe('conflict: not enough stock for Laptop 14-inch (available 25)')
+    id = await expectStatus(201, '', 'POST', '/api/v1/quotes', rm, stockBody('Q-S2', 26, 201)).then((q) => q.id)
+    res = await expectStatus(409, 'CONFLICT', 'POST', `/api/v1/quotes/${id}/submit`, rm)
+    expect(res.message).toBe('conflict: not enough stock for Wireless mouse (available 200)')
+    const split = { ...stockBody('Q-S3', 20), items: [{ productId: PROD_LAPTOP, quantity: 20 }, { productId: PROD_LAPTOP, quantity: 6 }] }
+    id = await expectStatus(201, '', 'POST', '/api/v1/quotes', rm, split).then((q) => q.id)
+    res = await expectStatus(409, 'CONFLICT', 'POST', `/api/v1/quotes/${id}/submit`, rm)
+    expect(res.message).toBe('conflict: not enough stock for Laptop 14-inch (available 25)')
+    // Role and state come first.
+    await expectStatus(403, 'FORBIDDEN', 'POST', `/api/v1/quotes/${id}/submit`, wo)
+
+    // Send: stock may have changed since approval.
+    const [a] = await sent('Q-A') // untracked products only
+    id = await expectStatus(201, '', 'POST', '/api/v1/quotes', rm, stockBody('Q-S4', 20)).then((q) => q.id)
+    await expectStatus(200, '', 'POST', `/api/v1/quotes/${id}/submit`, rm)
+    await expectStatus(200, '', 'POST', `/api/v1/quotes/${id}/approve`, wo)
+    await pool.query(`UPDATE products SET stock = 2.5 WHERE id = $1`, [PROD_LAPTOP])
+    res = await expectStatus(409, 'CONFLICT', 'POST', `/api/v1/quotes/${id}/send`, rm)
+    expect(res.message).toBe('conflict: not enough stock for Laptop 14-inch (available 2.5)')
+    await pool.query(`UPDATE products SET stock = 25 WHERE id = $1`, [PROD_LAPTOP])
+    const s4 = await expectStatus(200, '', 'POST', `/api/v1/quotes/${id}/send`, rm)
+
+    // A second quote for 10 more laptops is sent while 25 are in stock.
+    const s5 = await expectStatus(201, '', 'POST', '/api/v1/quotes', rm, stockBody('Q-S5', 10)).then((q) => q.id)
+    await expectStatus(200, '', 'POST', `/api/v1/quotes/${s5}/submit`, rm)
+    await expectStatus(200, '', 'POST', `/api/v1/quotes/${s5}/approve`, wo)
+    const s5Link = (await expectStatus(200, '', 'POST', `/api/v1/quotes/${s5}/send`, rm)).accessToken
+
+    // Accepting deducts stock; untracked products are ignored.
+    const customer = await as(ACME_BUYER)
+    await expectStatus(200, '', 'POST', `/api/v1/quotes/${a}/accept`, customer, sign)
+    await expectStatus(200, '', 'POST', `/api/v1/public/quotes/${s4.accessToken}/accept`, undefined, sign)
+    expect([await stock(PROD_LAPTOP), await stock(PROD_MOUSE)]).toEqual(['5.00', '199.00'])
+
+    // Not enough left: 409 and nothing changes (status, signature, stock).
+    res = await expectStatus(409, 'CONFLICT', 'POST', `/api/v1/quotes/${s5}/accept`, customer, sign)
+    expect(res.message).toBe('conflict: not enough stock for Laptop 14-inch (available 5)')
+    res = await expectStatus(409, 'CONFLICT', 'POST', `/api/v1/public/quotes/${s5Link}/accept`, undefined, sign)
+    expect(res.message).toBe('conflict: not enough stock for Laptop 14-inch (available 5)')
+    const after = await expectStatus(200, '', 'GET', `/api/v1/quotes/${s5}`, rm)
+    expect([after.status, after.signedBy]).toEqual(['sent', null])
+    expect([await stock(PROD_LAPTOP), await stock(PROD_MOUSE)]).toEqual(['5.00', '199.00'])
+
+    // Rejecting never touches stock; an untracked product is fine at any quantity.
+    await expectStatus(200, '', 'POST', `/api/v1/public/quotes/${s5Link}/reject`, undefined)
+    expect(await stock(PROD_LAPTOP)).toBe('5.00')
+    await pool.query(`UPDATE products SET stock = NULL WHERE id = $1`, [PROD_LAPTOP])
+    id = await expectStatus(201, '', 'POST', '/api/v1/quotes', rm, stockBody('Q-S6', 1000)).then((q) => q.id)
+    await expectStatus(200, '', 'POST', `/api/v1/quotes/${id}/submit`, rm)
+  })
+
+  it('exports quotes as PDF', async () => {
+    const rm = await as(RM1)
+    const body = quoteBody('Q/PDF 1')
+    body.items[0].description = 'บริการติดตั้งและอบรม (2 วัน)'
+    const id = (await expectStatus(201, '', 'POST', '/api/v1/quotes', rm, body)).id
+    const pdf = (token?: string, qid = id) => call('GET', `/api/v1/quotes/${qid}/pdf`, token)
+
+    let res = await pdf(rm)
+    expect([res.status, res.json.message]).toEqual([409, 'conflict: cannot export a quote that is draft'])
+    await expectStatus(200, '', 'POST', `/api/v1/quotes/${id}/submit`, rm)
+    res = await pdf(rm)
+    expect([res.status, res.json.message]).toEqual([409, 'conflict: cannot export a quote that is pending_approval'])
+    await expectStatus(200, '', 'POST', `/api/v1/quotes/${id}/approve`, await as(WO))
+
+    res = await pdf(rm)
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toBe('application/pdf')
+    expect(res.headers['content-disposition']).toBe('attachment; filename="Q_PDF_1.pdf"')
+    expect(res.raw.startsWith('%PDF-')).toBe(true)
+    expect((await pdf(await as(WO))).status).toBe(200)
+    expect((await pdf(await as(WOC))).status).toBe(200)
+    expect((await pdf(await as(ADMIN))).status).toBe(403)
+    expect((await pdf(await as('rm2@swiftquote.dev'))).status).toBe(404)
+    expect((await pdf(rm, UNKNOWN)).status).toBe(404)
+    expect((await pdf()).status).toBe(401)
+
+    const { accessToken } = await expectStatus(200, '', 'POST', `/api/v1/quotes/${id}/send`, rm)
+    expect((await pdf(await as('buyer@globex.example'))).status).toBe(404)
+    // Neither the customer's download nor the share link's marks the quote viewed.
+    res = await pdf(await as(ACME_BUYER))
+    expect(res.status).toBe(200)
+    res = await call('GET', `/api/v1/public/quotes/${accessToken}/pdf`)
+    expect([res.status, res.headers['content-type'], res.raw.slice(0, 5)]).toEqual([200, 'application/pdf', '%PDF-'])
+    expect(res.headers['content-disposition']).toBe('attachment; filename="Q_PDF_1.pdf"')
+    expect((await expectStatus(200, '', 'GET', `/api/v1/quotes/${id}`, rm)).status).toBe('sent')
+    res = await call('GET', `/api/v1/public/quotes/${UNKNOWN}/pdf`)
+    expect([res.status, res.json.message]).toEqual([404, 'not found: quote expired or not found'])
+
+    // Accepted quotes carry the signer.
+    await expectStatus(200, '', 'POST', `/api/v1/public/quotes/${accessToken}/accept`, undefined, sign)
+    res = await call('GET', `/api/v1/public/quotes/${accessToken}/pdf`)
+    expect(res.status).toBe(200)
+    const wrong = await call('POST', `/api/v1/quotes/${id}/pdf`, rm)
+    expect([wrong.status, wrong.headers.allow]).toEqual([405, 'GET, HEAD'])
   })
 })

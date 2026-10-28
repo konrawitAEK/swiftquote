@@ -18,11 +18,11 @@ import { Router } from '@angular/router';
 import { Alert } from '../../components/alert';
 import { errorText } from '../../core/api';
 import { AuthService } from '../../services/auth.service';
-import { homePath } from '../../core/roles';
+import { homePath, ROLE_LABELS } from '../../core/roles';
 
 // Seeded by db/migrations/V6__seed_dev_roles.sql; all use the password "password".
 const DEV_ACCOUNTS = [
-  { label: 'Admin', email: 'demo@swiftquote.dev' },
+  { label: ROLE_LABELS.admin, email: 'demo@swiftquote.dev' },
   { label: 'WOC', email: 'woc@swiftquote.dev' },
   { label: 'WO', email: 'wo@swiftquote.dev' },
   { label: 'RM', email: 'rm1@swiftquote.dev' },

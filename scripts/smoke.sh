@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end smoke test of the approval workflow against a running backend (Go, Spring or Node):
-# RM creates -> RM submits -> WO approves -> RM sends -> customer opens the link -> customer signs.
+# RM creates (products, amount discount) -> submits -> WO approves -> RM sends -> customer downloads the PDF,
+# opens the link and signs.
 # Usage: scripts/smoke.sh [base_url]   (default http://localhost:8080/api/v1)
 set -euo pipefail
 
@@ -31,10 +32,9 @@ QUOTE=$(curl -sf -X POST "$BASE/quotes" -H "$JSON" -H "Authorization: Bearer $RM
   "quoteNumber": "$NUMBER",
   "expiryDate": "$EXPIRY",
   "items": [
-    {"title": "Website redesign", "categoryId": "00000000-0000-4000-8000-000000000031",
-     "quantity": 1, "unitPrice": 45000, "discountPercent": 5},
-    {"title": "Hosting (months)", "categoryId": "00000000-0000-4000-8000-000000000030",
-     "quantity": 12, "unitPrice": 350}
+    {"productId": "00000000-0000-4000-8000-000000000042", "quantity": 1,
+     "discountType": "amount", "discountValue": 2250},
+    {"productId": "00000000-0000-4000-8000-000000000041", "quantity": 12}
   ]
 }
 EOF
@@ -54,6 +54,11 @@ step "RM submits, WO approves, RM sends"
 echo "submit  -> $(action "$RM" "$ID" submit)"
 echo "approve -> $(action "$WO" "$ID" approve)"
 echo "send    -> $(action "$RM" "$ID" send)"
+
+step "Customer downloads the PDF"
+CT=$(curl -sf -o /tmp/swiftquote-smoke.pdf -w '%{content_type}' "$BASE/public/quotes/$ACCESS/pdf")
+[ "$CT" = "application/pdf" ] && [ "$(head -c 5 /tmp/swiftquote-smoke.pdf)" = "%PDF-" ] || { echo "got $CT"; exit 1; }
+echo "PDF $(wc -c < /tmp/swiftquote-smoke.pdf | tr -d ' ') bytes"; rm -f /tmp/swiftquote-smoke.pdf
 
 step "Customer opens the link"
 curl -sf "$BASE/public/quotes/$ACCESS" | field status

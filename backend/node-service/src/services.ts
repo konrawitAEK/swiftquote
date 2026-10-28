@@ -8,6 +8,7 @@ import {
   CUSTOMER_EVENTS,
   CUSTOMER_STATUSES,
   invalid,
+  isDiscountType,
   notFound,
   NotFoundError,
   Problems,
@@ -15,6 +16,7 @@ import {
   roleForbidden,
   unauthorized,
   type Actor,
+  type DiscountType,
   type EventAction,
   type Quote,
   type QuoteItem,
@@ -24,6 +26,7 @@ import { goQuote, parseUuid } from './gojson.js'
 import { calculate, Money, type PricingResult } from './pricing.js'
 import {
   DuplicateError,
+  StockError,
   type ListFilter,
   type Login,
   type NewEvent,
@@ -105,12 +108,12 @@ export interface QuoteInput {
 }
 
 export interface ItemInput {
-  title: string
-  categoryId: string | null
+  productId: string | null
   description: string
   quantity: Money | null
-  unitPrice: Money | null
-  discountPercent: Money | null // default 0
+  unitPrice: Money | null // default: the product's price
+  discountType: string | null // default percent
+  discountValue: Money | null // default 0
   taxPercent: Money | null // default 7
 }
 
@@ -128,6 +131,21 @@ interface Validated {
 const quoteNotFound = () => notFound('quote not found')
 const publicNotFound = () => notFound('quote expired or not found')
 const stateConflict = (verb: string, s: QuoteStatus) => conflict(`cannot ${verb} a quote that is ${s}`)
+
+/** The states in which a quote can be exported as a PDF. */
+const EXPORTABLE_STATUSES: QuoteStatus[] = ['approved', 'sent', 'viewed', 'accepted', 'rejected']
+
+/** "not enough stock for <name> (available <n>)", n rounded to 2 places without trailing zeros. */
+export function stockConflict(e: StockError): Error {
+  const n = e.available.toDecimalPlaces(2, Money.ROUND_HALF_UP).toFixed()
+  return conflict(`not enough stock for ${e.productName} (available ${n})`)
+}
+
+/** A quote and its vendor (organization) name, for the PDF. */
+export interface QuoteDocument {
+  quote: Quote
+  vendorName: string
+}
 
 /** null for a missing or blank comment. */
 function trimmed(s: string | null): string | null {
@@ -191,6 +209,7 @@ export class QuoteService {
       taxAmount: v.totals.taxAmount,
       grandTotal: v.totals.grandTotal,
       accessToken: randomUUID(),
+      createdAt: '', // set by createQuote; the quote is re-read below
       signedBy: null,
       signatureData: null,
       signedAt: null,
@@ -240,37 +259,45 @@ export class QuoteService {
     if (input.clientId === null) p.add('clientId is required')
     if (input.expiryDate === null) p.add('expiryDate is required')
     input.items.forEach((it, i) => {
-      if (it.categoryId === null) p.add(`items[${i}].categoryId is required`)
+      if (it.productId === null) p.add(`items[${i}].productId is required`)
       if (it.quantity === null) p.add(`items[${i}].quantity is required`)
-      if (it.unitPrice === null) p.add(`items[${i}].unitPrice is required`)
+      if (it.discountType !== null && !isDiscountType(it.discountType)) {
+        p.add(`items[${i}].discountType ${goQuote(it.discountType)} is not a valid DiscountType`)
+      }
     })
     p.check()
 
-    const categories = await this.repo.activeCategoryIds(orgId)
+    const products = await this.repo.activeProducts(orgId)
     const quoteNumber = input.quoteNumber.trim()
     const expiryDate = input.expiryDate!
     if (quoteNumber === '') p.add('quoteNumber is required')
     if (expiryDate < this.today()) p.add('expiryDate must not be in the past')
     const items = input.items.map((it, i): QuoteItem => {
-      if (it.title.trim() === '') p.add(`items[${i}].title is required`)
-      if (!categories.has(it.categoryId!)) p.add(`items[${i}].categoryId is not an active category`)
+      const product = products.get(it.productId!)
+      if (!product) p.add(`items[${i}].productId is not an active product`)
       return {
         id: randomUUID(),
-        title: it.title,
-        category: { id: it.categoryId!, name: '' },
+        product: product ? { id: product.id, name: product.name } : null,
+        title: product?.name ?? '',
+        category: product?.category ?? null,
         description: it.description,
         quantity: it.quantity!,
-        unitPrice: it.unitPrice!,
-        discountPercent: it.discountPercent ?? new Money(0),
+        unitPrice: it.unitPrice ?? product?.unitPrice ?? new Money(0),
+        discountType: (it.discountType ?? 'percent') as DiscountType,
+        discountValue: it.discountValue ?? new Money(0),
         taxPercent: it.taxPercent ?? DEFAULT_TAX_PERCENT,
         lineTotal: new Money(0),
+        unitCost: product?.unitCost ?? null,
       }
     })
+    // Pricing messages need every line's price, so they follow only once all products resolved.
     let totals: PricingResult | null = null
-    try {
-      totals = calculate(items)
-    } catch (err) {
-      p.add((err as Error).message)
+    if (items.every((it) => it.product !== null)) {
+      try {
+        totals = calculate(items)
+      } catch (err) {
+        p.add((err as Error).message)
+      }
     }
     p.check()
     totals!.lineTotals.forEach((t, i) => (items[i]!.lineTotal = t))
@@ -316,6 +343,7 @@ export class QuoteService {
     const q = await this.visible(a, id)
     if (q.status !== 'draft') throw stateConflict('submit', q.status)
     if (q.creatorTeamWo === null) throw conflict('you must be in a team led by a WO to submit')
+    await this.checkStock(q)
     return this.transition(a, q, 'submit', ['draft'], 'pending_approval', 'submitted', comment)
   }
 
@@ -337,6 +365,7 @@ export class QuoteService {
     const q = await this.visible(a, id)
     if (q.status !== 'approved') throw stateConflict('send', q.status)
     if (this.isExpired(q)) throw conflict('quote has expired')
+    await this.checkStock(q)
     return this.transition(a, q, 'send', ['approved'], 'sent', 'sent', null)
   }
 
@@ -345,7 +374,7 @@ export class QuoteService {
     const q = await this.visible(a, id)
     const signer = validateSignature(signerName, signatureData)
     this.respondable(q, 'accept')
-    const ok = await this.repo.accept(q.id, RESPONDABLE_STATUSES, signer, signatureData, this.event('accepted', a.userId, null))
+    const ok = await this.acceptStoring(q.id, signer, signatureData, this.event('accepted', a.userId, null))
     if (!ok) throw await this.raced(a.tenantId, q.id, 'accept')
     return this.get(a, id)
   }
@@ -371,7 +400,7 @@ export class QuoteService {
     const signer = validateSignature(signerName, signatureData)
     const { quote: q } = await this.publicQuote(accessToken)
     if (!RESPONDABLE_STATUSES.includes(q.status)) throw stateConflict('accept', q.status)
-    const ok = await this.repo.accept(q.id, RESPONDABLE_STATUSES, signer, signatureData, this.event('accepted', null, null))
+    const ok = await this.acceptStoring(q.id, signer, signatureData, this.event('accepted', null, null))
     if (!ok) throw await this.raced(q.organizationId, q.id, 'accept')
     return this.customerView(q)
   }
@@ -382,6 +411,35 @@ export class QuoteService {
     const ok = await this.repo.transition(q.id, RESPONDABLE_STATUSES, 'rejected', this.event('rejected', null, comment))
     if (!ok) throw await this.raced(q.organizationId, q.id, 'reject')
     return this.customerView(q)
+  }
+
+  /** A visible quote for the PDF; never marks it viewed. */
+  async document(a: Actor, id: string): Promise<QuoteDocument> {
+    if (a.role === 'admin') throw roleForbidden()
+    const q = await this.visible(a, id)
+    if (!EXPORTABLE_STATUSES.includes(q.status)) throw stateConflict('export', q.status)
+    return { quote: q, vendorName: await this.repo.organizationName(q.organizationId) }
+  }
+
+  /** A quote reachable by its share link, for the PDF; never marks it viewed. */
+  async publicDocument(accessToken: string): Promise<QuoteDocument> {
+    const v = await this.publicQuote(accessToken)
+    return { quote: v.quote, vendorName: v.vendorName }
+  }
+
+  /** 409 if a tracked product does not have the quantity the quote needs. */
+  private async checkStock(q: Quote): Promise<void> {
+    const short = await this.repo.stockShortage(q.id)
+    if (short) throw stockConflict(short)
+  }
+
+  /** Accepts and deducts stock in one transaction; a shortage is a 409 and nothing changes. */
+  private async acceptStoring(id: string, signer: string, signatureData: string, ev: NewEvent): Promise<boolean> {
+    try {
+      return await this.repo.accept(id, RESPONDABLE_STATUSES, signer, signatureData, ev)
+    } catch (err) {
+      throw err instanceof StockError ? stockConflict(err) : err
+    }
   }
 
   /** Loads a quote and hides it (404) unless the actor's role lets them see it. */

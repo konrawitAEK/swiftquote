@@ -7,7 +7,10 @@ import java.util.UUID;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.swiftquote.domain.Actor;
 import com.swiftquote.domain.ApiException;
 import com.swiftquote.domain.GoText;
+import com.swiftquote.domain.Quote;
 import com.swiftquote.domain.Roles;
 import com.swiftquote.domain.Statuses;
 import com.swiftquote.repository.AdminRepository.UserInput;
@@ -29,6 +33,7 @@ import com.swiftquote.service.AuthService;
 import com.swiftquote.service.CatalogService;
 import com.swiftquote.service.ClientService;
 import com.swiftquote.service.DashboardService;
+import com.swiftquote.service.ProductService;
 import com.swiftquote.service.QuoteService;
 import com.swiftquote.web.rest.Dtos.AdminUserView;
 import com.swiftquote.web.rest.Dtos.AuthResponse;
@@ -36,6 +41,7 @@ import com.swiftquote.web.rest.Dtos.AuthUser;
 import com.swiftquote.web.rest.Dtos.CategoryView;
 import com.swiftquote.web.rest.Dtos.ClientView;
 import com.swiftquote.web.rest.Dtos.DashboardView;
+import com.swiftquote.web.rest.Dtos.ProductView;
 import com.swiftquote.web.rest.Dtos.PublicQuoteView;
 import com.swiftquote.web.rest.Dtos.QuoteDetail;
 import com.swiftquote.web.rest.Dtos.QuoteSummary;
@@ -65,8 +71,14 @@ class ApiController {
 
 	private final DashboardService dashboard;
 
+	private final ProductService products;
+
+	private final QuotePdf pdf;
+
 	ApiController(AuthService auth, CatalogService catalog, ClientService clients, QuoteService quotes,
-			AdminService admin, DashboardService dashboard) {
+			AdminService admin, DashboardService dashboard, ProductService products, QuotePdf pdf) {
+		this.products = products;
+		this.pdf = pdf;
 		this.auth = auth;
 		this.catalog = catalog;
 		this.clients = clients;
@@ -118,6 +130,33 @@ class ApiController {
 		this.catalog.delete(actor, pathId(id));
 	}
 
+	@GetMapping("/products")
+	List<ProductView> listProducts(Actor actor) {
+		return this.products.list(actor).stream().map(ProductView::of).toList();
+	}
+
+	@PostMapping("/admin/products")
+	@ResponseStatus(HttpStatus.CREATED)
+	ProductView createProduct(Actor actor, @RequestBody(required = false) byte[] body) {
+		return ProductView.of(this.products.create(actor, productInput(JsonBody.of(body))));
+	}
+
+	@PutMapping("/admin/products/{id}")
+	ProductView updateProduct(Actor actor, @PathVariable String id, @RequestBody(required = false) byte[] body) {
+		return ProductView.of(this.products.update(actor, pathId(id), productInput(JsonBody.of(body))));
+	}
+
+	@PostMapping("/admin/products/{id}/delete")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	void deleteProduct(Actor actor, @PathVariable String id) {
+		this.products.delete(actor, pathId(id));
+	}
+
+	private static ProductService.Input productInput(JsonBody req) {
+		return new ProductService.Input(req.optString("name"), req.uuid("categoryId"), req.decimal("unitPrice"),
+				req.decimal("unitCost"), req.decimal("stock"), req.bool("active"));
+	}
+
 	@GetMapping("/quotes")
 	List<QuoteSummary> listQuotes(Actor actor, HttpServletRequest request) {
 		if (Roles.ADMIN.equals(actor.role())) {
@@ -138,18 +177,18 @@ class ApiController {
 	@ResponseStatus(HttpStatus.CREATED)
 	QuoteDetail createQuote(Actor actor, @RequestBody(required = false) byte[] body) {
 		QuoteService.CreateInput in = createInput(JsonBody.of(body));
-		return QuoteDetail.of(this.quotes.create(actor, in));
+		return detail(actor, this.quotes.create(actor, in));
 	}
 
 	@GetMapping("/quotes/{id}")
 	QuoteDetail getQuote(Actor actor, @PathVariable String id) {
-		return QuoteDetail.of(this.quotes.get(actor, pathId(id)));
+		return detail(actor, this.quotes.get(actor, pathId(id)));
 	}
 
 	@PutMapping("/quotes/{id}")
 	QuoteDetail updateQuote(Actor actor, @PathVariable String id, @RequestBody(required = false) byte[] body) {
 		QuoteService.CreateInput in = createInput(JsonBody.of(body));
-		return QuoteDetail.of(this.quotes.update(actor, pathId(id), in));
+		return detail(actor, this.quotes.update(actor, pathId(id), in));
 	}
 
 	private static QuoteService.CreateInput createInput(JsonBody req) {
@@ -161,12 +200,31 @@ class ApiController {
 		List<QuoteService.ItemInput> items = new ArrayList<>();
 		if (rawItems != null) {
 			for (JsonBody it : rawItems) {
-				items.add(new QuoteService.ItemInput(it.string("title"), it.uuid("categoryId"),
-						it.string("description"), it.decimal("quantity"), it.decimal("unitPrice"),
-						it.decimal("discountPercent"), it.decimal("taxPercent")));
+				items.add(new QuoteService.ItemInput(it.uuid("productId"), it.string("description"),
+						it.decimal("quantity"), it.decimal("unitPrice"), it.optString("discountType"),
+						it.decimal("discountValue"), it.decimal("taxPercent")));
 			}
 		}
 		return new QuoteService.CreateInput(clientId, dealId, quoteNumber, expiryDate, items);
+	}
+
+	/** Cost and profit are left out for customers. */
+	private static QuoteDetail detail(Actor actor, Quote q) {
+		return QuoteDetail.of(q, !Roles.CUSTOMER.equals(actor.role()));
+	}
+
+	@GetMapping("/quotes/{id}/pdf")
+	ResponseEntity<byte[]> getQuotePdf(Actor actor, @PathVariable String id) {
+		return pdf(this.quotes.document(actor, pathId(id)));
+	}
+
+	private ResponseEntity<byte[]> pdf(QuoteService.Document doc) {
+		byte[] bytes = this.pdf.render(doc.quote(), doc.vendorName());
+		return ResponseEntity.ok()
+			.contentType(MediaType.APPLICATION_PDF)
+			.header(HttpHeaders.CONTENT_DISPOSITION,
+					"attachment; filename=\"" + QuotePdf.fileName(doc.quote().quoteNumber()) + ".pdf\"")
+			.body(bytes);
 	}
 
 	/** An optional {"comment": ...} body; an empty body means no comment. */
@@ -177,38 +235,38 @@ class ApiController {
 	@PostMapping("/quotes/{id}/submit")
 	QuoteDetail submitQuote(Actor actor, @PathVariable String id, @RequestBody(required = false) byte[] body) {
 		String comment = optionalComment(body);
-		return QuoteDetail.of(this.quotes.submit(actor, pathId(id), comment));
+		return detail(actor, this.quotes.submit(actor, pathId(id), comment));
 	}
 
 	@PostMapping("/quotes/{id}/approve")
 	QuoteDetail approveQuote(Actor actor, @PathVariable String id, @RequestBody(required = false) byte[] body) {
 		String comment = optionalComment(body);
-		return QuoteDetail.of(this.quotes.approve(actor, pathId(id), comment));
+		return detail(actor, this.quotes.approve(actor, pathId(id), comment));
 	}
 
 	@PostMapping("/quotes/{id}/return")
 	QuoteDetail returnQuote(Actor actor, @PathVariable String id, @RequestBody(required = false) byte[] body) {
 		String comment = optionalComment(body);
-		return QuoteDetail.of(this.quotes.returnToDraft(actor, pathId(id), comment));
+		return detail(actor, this.quotes.returnToDraft(actor, pathId(id), comment));
 	}
 
 	@PostMapping("/quotes/{id}/send")
 	QuoteDetail sendQuote(Actor actor, @PathVariable String id, @RequestBody(required = false) byte[] body) {
 		optionalComment(body);
-		return QuoteDetail.of(this.quotes.send(actor, pathId(id)));
+		return detail(actor, this.quotes.send(actor, pathId(id)));
 	}
 
 	@PostMapping("/quotes/{id}/accept")
 	QuoteDetail acceptQuote(Actor actor, @PathVariable String id, @RequestBody(required = false) byte[] body) {
 		JsonBody req = JsonBody.of(body);
-		return QuoteDetail.of(this.quotes.accept(actor, pathId(id), req.string("signerName"),
+		return detail(actor, this.quotes.accept(actor, pathId(id), req.string("signerName"),
 				req.string("signatureDataUrl")));
 	}
 
 	@PostMapping("/quotes/{id}/reject")
 	QuoteDetail rejectQuote(Actor actor, @PathVariable String id, @RequestBody(required = false) byte[] body) {
 		String comment = optionalComment(body);
-		return QuoteDetail.of(this.quotes.reject(actor, pathId(id), comment));
+		return detail(actor, this.quotes.reject(actor, pathId(id), comment));
 	}
 
 	@GetMapping("/dashboard/summary")
@@ -290,17 +348,22 @@ class ApiController {
 		return PublicQuoteView.of(this.quotes.getPublic(pathId(accessToken)));
 	}
 
+	@GetMapping("/public/quotes/{accessToken}/pdf")
+	ResponseEntity<byte[]> getPublicQuotePdf(@PathVariable String accessToken) {
+		return pdf(this.quotes.publicDocument(pathId(accessToken)));
+	}
+
 	@PostMapping("/public/quotes/{accessToken}/accept")
 	QuoteDetail acceptPublicQuote(@PathVariable String accessToken, @RequestBody(required = false) byte[] body) {
 		JsonBody req = JsonBody.of(body);
 		return QuoteDetail.of(this.quotes.acceptPublic(pathId(accessToken), req.string("signerName"),
-				req.string("signatureDataUrl")));
+				req.string("signatureDataUrl")), false);
 	}
 
 	@PostMapping("/public/quotes/{accessToken}/reject")
 	QuoteDetail rejectPublicQuote(@PathVariable String accessToken, @RequestBody(required = false) byte[] body) {
 		String comment = optionalComment(body);
-		return QuoteDetail.of(this.quotes.rejectPublic(pathId(accessToken), comment));
+		return QuoteDetail.of(this.quotes.rejectPublic(pathId(accessToken), comment), false);
 	}
 
 }

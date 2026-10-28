@@ -1,4 +1,5 @@
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import DownloadIcon from '@mui/icons-material/Download'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import {
   Alert,
@@ -25,7 +26,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import { errorText } from '../../api/http'
 import { useAuth } from '../../auth/auth'
-import { SENT_STATUSES } from '../../auth/roles'
+import { PDF_STATUSES, SENT_STATUSES } from '../../auth/roles'
 import { AcceptCard } from './AcceptCard'
 import { quoteDetailService } from '../../services/quoteDetailService'
 import { QuoteHistory } from './QuoteHistory'
@@ -34,7 +35,7 @@ import { shareUrl } from './shareUrl'
 import { StatusChip } from '../../components/StatusChip'
 import { TotalRow } from '../../components/TotalRow'
 import { formatMoney } from '../../pricing/pricing'
-import type { QuoteDetail, Role } from '../../models'
+import type { QuoteDetail, QuoteItemView, Role } from '../../models'
 
 type Quote = QuoteDetail
 type CommentAction = 'submit' | 'approve' | 'return' | 'reject'
@@ -53,6 +54,15 @@ const DIALOGS: Record<CommentAction, DialogSpec> = {
   return: { action: 'return', title: 'Return for changes', confirm: 'Return to RM', commentRequired: true, help: 'Tell the RM what to change.' },
   reject: { action: 'reject', title: 'Decline quotation', confirm: 'Decline', commentRequired: false, help: 'Optional reason.' },
 }
+
+/** "10%" or "฿2,250.00"; "—" for no discount. */
+function discountText(it: QuoteItemView): string {
+  if (!Number(it.discountValue)) return '—'
+  return it.discountType === 'amount' ? formatMoney(it.discountValue) : `${it.discountValue}%`
+}
+
+/** Cost figures: absent for customers (not rendered), null when unknown ("—"). */
+const costText = (v: number | null | undefined) => (v === null || v === undefined ? '—' : formatMoney(v))
 
 /** Which workflow actions a role may take on a quote in its current status. */
 function availableActions(role: Role, q: Quote) {
@@ -75,6 +85,7 @@ export function QuoteDetailPage() {
   const [busy, setBusy] = useState(false)
   const [dialog, setDialog] = useState<DialogSpec | null>(null)
   const [comment, setComment] = useState('')
+  const [downloading, setDownloading] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -108,11 +119,27 @@ export function QuoteDetailPage() {
     void run(() => quoteDetailService[action](id, comment.trim() || null))
   }
 
+  const downloadPdf = async () => {
+    if (!quote) return
+    setDownloading(true)
+    setActionError(null)
+    try {
+      await quoteDetailService.downloadPdf(id, quote.quoteNumber)
+    } catch (err) {
+      setActionError(errorText(err, 'Could not download the PDF'))
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   if (error) return <Alert severity="error">{error}</Alert>
   if (!quote) return <LinearProgress />
 
   const can = availableActions(role, quote)
   const showLink = role !== 'customer' && SENT_STATUSES.includes(quote.status)
+  const showPdf = PDF_STATUSES.includes(quote.status)
+  // The API omits cost fields for customers; render them only when they are in the response.
+  const showCost = quote.costTotal !== undefined || quote.items.some((it) => it.unitCost !== undefined)
 
   return (
     <Stack spacing={3}>
@@ -161,6 +188,11 @@ export function QuoteDetailPage() {
               Send to customer
             </Button>
           )}
+          {showPdf && (
+            <Button variant="outlined" startIcon={<DownloadIcon />} disabled={downloading} onClick={downloadPdf}>
+              {downloading ? 'Downloading…' : 'Download PDF'}
+            </Button>
+          )}
           {can.respond && (
             <Button variant="outlined" color="error" onClick={() => setDialog(DIALOGS.reject)}>
               Decline
@@ -205,6 +237,13 @@ export function QuoteDetailPage() {
                 <TableCell align="right">Unit price</TableCell>
                 <TableCell align="right">Discount</TableCell>
                 <TableCell align="right">Amount (excl. VAT)</TableCell>
+                {showCost && (
+                  <>
+                    <TableCell align="right">Unit cost</TableCell>
+                    <TableCell align="right">Cost total</TableCell>
+                    <TableCell align="right">Profit</TableCell>
+                  </>
+                )}
               </TableRow>
             </TableHead>
             <TableBody sx={{ '& td': { fontVariantNumeric: 'tabular-nums' } }}>
@@ -223,8 +262,15 @@ export function QuoteDetailPage() {
                   </TableCell>
                   <TableCell align="right">{it.quantity}</TableCell>
                   <TableCell align="right">{formatMoney(it.unitPrice)}</TableCell>
-                  <TableCell align="right">{Number(it.discountPercent) ? `${it.discountPercent}%` : '—'}</TableCell>
+                  <TableCell align="right">{discountText(it)}</TableCell>
                   <TableCell align="right">{formatMoney(it.lineTotal)}</TableCell>
+                  {showCost && (
+                    <>
+                      <TableCell align="right" sx={{ color: 'text.secondary' }}>{costText(it.unitCost)}</TableCell>
+                      <TableCell align="right" sx={{ color: 'text.secondary' }}>{costText(it.costTotal)}</TableCell>
+                      <TableCell align="right" sx={{ color: (it.profit ?? 0) < 0 ? 'error.main' : undefined }}>{costText(it.profit)}</TableCell>
+                    </>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -238,6 +284,13 @@ export function QuoteDetailPage() {
             <TotalRow label="VAT" value={formatMoney(quote.taxAmount)} />
             <Divider />
             <TotalRow label="Grand total" value={formatMoney(quote.grandTotal)} strong />
+            {showCost && (
+              <>
+                <Divider />
+                <TotalRow label="Cost total" value={costText(quote.costTotal)} />
+                <TotalRow label="Profit (excl. VAT)" value={costText(quote.profit)} />
+              </>
+            )}
           </Stack>
         </CardContent>
       </Card>

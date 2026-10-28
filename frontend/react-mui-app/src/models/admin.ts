@@ -1,4 +1,4 @@
-// Users and teams (admin).
+// Users and teams (admin role, shown as "Back Office").
 import type { Generated } from './generated'
 
 export interface AdminUser extends Generated<'AdminUser'> {}

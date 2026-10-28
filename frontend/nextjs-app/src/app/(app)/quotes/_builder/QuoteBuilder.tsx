@@ -6,10 +6,11 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from 'react'
 import { TotalRow } from '@/components/TotalRow'
 import { errorText } from '@/lib/api/types'
-import { calculate, formatMoney, toDecimal } from '@/lib/pricing/pricing'
+import { calculate, formatMoney, formatOptionalMoney, toDecimal } from '@/lib/pricing/pricing'
 import { LineItems, newLine, type Line } from './LineItems'
+import { splitLineErrors } from './lineErrors'
 import { quoteBuilderService } from '@/services/quoteBuilderService'
-import type { Client, CreateQuoteRequest, ProductCategory } from '@/models'
+import type { Client, CreateQuoteRequest, Product } from '@/models'
 
 /** YYYY-MM-DD in the user's local time zone. */
 function isoDate(d: Date): string {
@@ -36,22 +37,24 @@ function BuilderForm({ id }: { id?: string }) {
   const editing = id !== undefined
   const router = useRouter()
   const [clients, setClients] = useState<Client[]>([])
-  const [categories, setCategories] = useState<ProductCategory[]>([])
+  const [products, setProducts] = useState<Product[]>([])
   const [clientId, setClientId] = useState('')
   const [quoteNumber, setQuoteNumber] = useState(defaultQuoteNumber)
   const [today] = useState(() => isoDate(new Date()))
   const [expiryDate, setExpiryDate] = useState(() => isoDate(new Date(Date.now() + 30 * 864e5)))
   const [lines, setLines] = useState<Line[]>(() => [newLine()])
   const [error, setError] = useState<string | null>(null)
+  // Keyed by Line.key so the messages stay on the right row when lines are removed.
+  const [lineErrors, setLineErrors] = useState<Record<number, string[]>>({})
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(editing)
   const [locked, setLocked] = useState<string | null>(null)
 
   useEffect(() => {
     quoteBuilderService
-      .listCategories()
-      .then(setCategories)
-      .catch((e: unknown) => setError(errorText(e, 'Could not load product categories')))
+      .listProducts()
+      .then(setProducts)
+      .catch((e: unknown) => setError(errorText(e, 'Could not load products')))
     quoteBuilderService
       .listClients()
       .then((data) => {
@@ -73,12 +76,13 @@ function BuilderForm({ id }: { id?: string }) {
         setLines(
           data.items.map((it) =>
             newLine({
+              productId: it.product?.id ?? '',
               title: it.title,
-              categoryId: it.category?.id ?? '',
               description: it.description ?? '',
               quantity: String(it.quantity),
               unitPrice: String(it.unitPrice),
-              discountPercent: String(it.discountPercent),
+              discountType: it.discountType,
+              discountValue: String(it.discountValue),
               taxPercent: String(it.taxPercent),
             }),
           ),
@@ -92,34 +96,44 @@ function BuilderForm({ id }: { id?: string }) {
   }, [id])
 
   // Live preview with the same rounding rules as the server (contracts/fixtures/pricing-cases.json).
-  const totals = useMemo(
-    () =>
-      calculate(
-        lines.map((l) => ({
-          quantity: toDecimal(l.quantity),
-          unitPrice: toDecimal(l.unitPrice),
-          discountPercent: toDecimal(l.discountPercent),
-          taxPercent: toDecimal(l.taxPercent),
-        })),
-      ),
-    [lines],
-  )
+  // Cost is the product's current cost, which the server stores on the line when the draft is saved.
+  const totals = useMemo(() => {
+    const costs = new Map(products.map((p) => [p.id, p.unitCost]))
+    return calculate(
+      lines.map((l) => ({
+        quantity: toDecimal(l.quantity),
+        unitPrice: toDecimal(l.unitPrice),
+        discountType: l.discountType,
+        discountValue: toDecimal(l.discountValue),
+        taxPercent: toDecimal(l.taxPercent),
+        unitCost: costs.get(l.productId) ?? null,
+      })),
+    )
+  }, [lines, products])
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setBusy(true)
     setError(null)
+    setLineErrors({})
+    const missing = Object.fromEntries(lines.flatMap((l) => (l.productId ? [] : [[l.key, ['pick a product']]])))
+    if (Object.keys(missing).length) {
+      setBusy(false)
+      setLineErrors(missing)
+      setError('Every line needs a product.')
+      return
+    }
     const body: CreateQuoteRequest = {
       clientId,
       quoteNumber,
       expiryDate,
       items: lines.map((l) => ({
-        title: l.title,
-        categoryId: l.categoryId,
+        productId: l.productId,
         ...(l.description.trim() ? { description: l.description } : {}),
         quantity: Number(l.quantity),
         unitPrice: Number(l.unitPrice),
-        discountPercent: Number(l.discountPercent || 0),
+        discountType: l.discountType,
+        discountValue: Number(l.discountValue || 0),
         taxPercent: Number(l.taxPercent || 0),
       })),
     }
@@ -127,7 +141,11 @@ function BuilderForm({ id }: { id?: string }) {
       const data = id ? await quoteBuilderService.update(id, body) : await quoteBuilderService.create(body)
       router.push(`/quotes/${data.id}`)
     } catch (e) {
-      setError(errorText(e, 'Could not save quotation'))
+      const errors = splitLineErrors(e, 'Could not save quotation')
+      setError(errors.message)
+      setLineErrors(
+        Object.fromEntries(Object.entries(errors.lines).flatMap(([i, msgs]) => (lines[Number(i)] ? [[lines[Number(i)].key, msgs]] : []))),
+      )
     } finally {
       setBusy(false)
     }
@@ -186,7 +204,7 @@ function BuilderForm({ id }: { id?: string }) {
           </CardContent>
         </Card>
 
-        <LineItems lines={lines} setLines={setLines} categories={categories} totals={totals} />
+        <LineItems lines={lines} setLines={setLines} products={products} totals={totals} lineErrors={lineErrors} />
 
         <Stack
           direction={{ xs: 'column', md: 'row' }}
@@ -194,8 +212,8 @@ function BuilderForm({ id }: { id?: string }) {
           sx={{ justifyContent: 'space-between', alignItems: { md: 'flex-start' } }}
         >
           <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 420 }}>
-            Totals update as you type using the same rounding rules as the server. Saving keeps the quotation as a draft;
-            submit it for approval from its page.
+            Totals update as you type using the same rounding rules as the server. Cost and profit are for your team only;
+            the customer never sees them. Saving keeps the quotation as a draft; submit it for approval from its page.
           </Typography>
           <Card sx={{ minWidth: { md: 340 } }}>
             <CardContent>
@@ -205,6 +223,9 @@ function BuilderForm({ id }: { id?: string }) {
                 <TotalRow label="VAT" value={formatMoney(totals.taxAmount)} />
                 <Divider />
                 <TotalRow label="Grand total" value={formatMoney(totals.grandTotal)} strong />
+                <Divider />
+                <TotalRow label="Cost" value={formatOptionalMoney(totals.costTotal)} />
+                <TotalRow label="Profit (before VAT)" value={formatOptionalMoney(totals.profit)} />
               </Stack>
               <Button
                 type="submit"

@@ -8,6 +8,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/admin"
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/catalog"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/dashboard"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/domain"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/quote"
@@ -36,6 +37,28 @@ func (d *date) UnmarshalJSON(b []byte) error {
 // money renders a decimal as a JSON number with exactly 2 places, never via float.
 func money(d decimal.Decimal) json.Number {
 	return json.Number(d.StringFixed(2))
+}
+
+// nullableMoney is money or null.
+func nullableMoney(d *decimal.Decimal) *json.Number {
+	if d == nil {
+		return nil
+	}
+	m := money(*d)
+	return &m
+}
+
+// costMoney renders a cost field for internal roles (money or null). For customers and the share link
+// it returns an empty value, which omitempty drops from the JSON so the field is absent, not null.
+func costMoney(d *decimal.Decimal, show bool) json.RawMessage {
+	switch {
+	case !show:
+		return nil
+	case d == nil:
+		return json.RawMessage("null")
+	default:
+		return json.RawMessage(d.StringFixed(2))
+	}
 }
 
 type refView struct {
@@ -74,13 +97,13 @@ type clientView struct {
 }
 
 type quoteItemInput struct {
-	Title           string           `json:"title"`
-	CategoryID      *uuid.UUID       `json:"categoryId"`
-	Description     string           `json:"description"`
-	Quantity        *decimal.Decimal `json:"quantity"`
-	UnitPrice       *decimal.Decimal `json:"unitPrice"`
-	DiscountPercent *decimal.Decimal `json:"discountPercent"`
-	TaxPercent      *decimal.Decimal `json:"taxPercent"`
+	ProductID     *uuid.UUID       `json:"productId"`
+	Description   string           `json:"description"`
+	Quantity      *decimal.Decimal `json:"quantity"`
+	UnitPrice     *decimal.Decimal `json:"unitPrice"`
+	DiscountType  *string          `json:"discountType"`
+	DiscountValue *decimal.Decimal `json:"discountValue"`
+	TaxPercent    *decimal.Decimal `json:"taxPercent"`
 }
 
 type createQuoteRequest struct {
@@ -99,8 +122,8 @@ func (r createQuoteRequest) toInput() quote.CreateInput {
 	}
 	for _, it := range r.Items {
 		in.Items = append(in.Items, quote.ItemInput{
-			Title: it.Title, CategoryID: it.CategoryID, Description: it.Description, Quantity: it.Quantity, UnitPrice: it.UnitPrice,
-			DiscountPercent: it.DiscountPercent, TaxPercent: it.TaxPercent,
+			ProductID: it.ProductID, Description: it.Description, Quantity: it.Quantity, UnitPrice: it.UnitPrice,
+			DiscountType: it.DiscountType, DiscountValue: it.DiscountValue, TaxPercent: it.TaxPercent,
 		})
 	}
 	return in
@@ -125,15 +148,22 @@ type quoteSummary struct {
 	CreatedBy   *refView           `json:"createdBy"`
 }
 
+// The cost fields of quoteItemView and quoteDetail are omitted (not null) for customers and the share link.
 type quoteItemView struct {
-	Title           string      `json:"title"`
-	Category        *refView    `json:"category"`
-	Description     *string     `json:"description"`
-	Quantity        json.Number `json:"quantity"`
-	UnitPrice       json.Number `json:"unitPrice"`
-	DiscountPercent json.Number `json:"discountPercent"`
-	TaxPercent      json.Number `json:"taxPercent"`
-	LineTotal       json.Number `json:"lineTotal"`
+	Product        *refView            `json:"product"`
+	Title          string              `json:"title"`
+	Category       *refView            `json:"category"`
+	Description    *string             `json:"description"`
+	Quantity       json.Number         `json:"quantity"`
+	UnitPrice      json.Number         `json:"unitPrice"`
+	DiscountType   domain.DiscountType `json:"discountType"`
+	DiscountValue  json.Number         `json:"discountValue"`
+	DiscountAmount json.Number         `json:"discountAmount"`
+	TaxPercent     json.Number         `json:"taxPercent"`
+	LineTotal      json.Number         `json:"lineTotal"`
+	UnitCost       json.RawMessage     `json:"unitCost,omitempty"`
+	CostTotal      json.RawMessage     `json:"costTotal,omitempty"`
+	Profit         json.RawMessage     `json:"profit,omitempty"`
 }
 
 type eventView struct {
@@ -155,6 +185,8 @@ type quoteDetail struct {
 	DiscountAmount json.Number        `json:"discountAmount"`
 	TaxAmount      json.Number        `json:"taxAmount"`
 	GrandTotal     json.Number        `json:"grandTotal"`
+	CostTotal      json.RawMessage    `json:"costTotal,omitempty"`
+	Profit         json.RawMessage    `json:"profit,omitempty"`
 	AccessToken    uuid.UUID          `json:"accessToken"`
 	SignedBy       *string            `json:"signedBy"`
 	SignedAt       *time.Time         `json:"signedAt"`
@@ -218,6 +250,38 @@ type categoryView struct {
 	ID     uuid.UUID `json:"id"`
 	Name   string    `json:"name"`
 	Active bool      `json:"active"`
+}
+
+type productView struct {
+	ID        uuid.UUID    `json:"id"`
+	Name      string       `json:"name"`
+	Category  refView      `json:"category"`
+	UnitPrice json.Number  `json:"unitPrice"`
+	UnitCost  json.Number  `json:"unitCost"`
+	Stock     *json.Number `json:"stock"`
+	Active    bool         `json:"active"`
+}
+
+type productRequest struct {
+	Name       string           `json:"name"`
+	CategoryID *uuid.UUID       `json:"categoryId"`
+	UnitPrice  *decimal.Decimal `json:"unitPrice"`
+	UnitCost   *decimal.Decimal `json:"unitCost"`
+	Stock      *decimal.Decimal `json:"stock"`
+	Active     *bool            `json:"active"` // update only; ignored on create
+}
+
+func (r productRequest) toInput(update bool) catalog.ProductInput {
+	in := catalog.ProductInput{Name: r.Name, CategoryID: r.CategoryID, UnitPrice: r.UnitPrice, UnitCost: r.UnitCost, Stock: r.Stock}
+	if update {
+		in.Active = r.Active
+	}
+	return in
+}
+
+func toProductView(p domain.Product) productView {
+	return productView{ID: p.ID, Name: p.Name, Category: refView{ID: p.Category.ID, Name: p.Category.Name},
+		UnitPrice: money(p.UnitPrice), UnitCost: money(p.UnitCost), Stock: nullableMoney(p.Stock), Active: p.Active}
 }
 
 type createCategoryRequest struct {
@@ -304,17 +368,24 @@ func toClientViews(cs []domain.Client) []clientView {
 	return out
 }
 
-func toItemViews(items []domain.QuoteItem) []quoteItemView {
+// toItemViews renders lines; showCost is false for customers and the share link.
+func toItemViews(items []domain.QuoteItem, showCost bool) []quoteItemView {
 	out := make([]quoteItemView, len(items))
 	for i, it := range items {
 		out[i] = quoteItemView{
-			Title:           it.Title,
-			Category:        toRef(it.Category),
-			Quantity:        money(it.Quantity),
-			UnitPrice:       money(it.UnitPrice),
-			DiscountPercent: money(it.DiscountPercent),
-			TaxPercent:      money(it.TaxPercent),
-			LineTotal:       money(it.LineTotal),
+			Product:        toRef(it.Product),
+			Title:          it.Title,
+			Category:       toRef(it.Category),
+			Quantity:       money(it.Quantity),
+			UnitPrice:      money(it.UnitPrice),
+			DiscountType:   it.DiscountType,
+			DiscountValue:  money(it.DiscountValue),
+			DiscountAmount: money(it.DiscountAmount),
+			TaxPercent:     money(it.TaxPercent),
+			LineTotal:      money(it.LineTotal),
+			UnitCost:       costMoney(it.UnitCost, showCost),
+			CostTotal:      costMoney(it.CostTotal(), showCost),
+			Profit:         costMoney(it.Profit(), showCost),
 		}
 		if it.Description != "" {
 			d := it.Description
@@ -324,7 +395,8 @@ func toItemViews(items []domain.QuoteItem) []quoteItemView {
 	return out
 }
 
-func toQuoteDetail(q domain.Quote) quoteDetail {
+// toQuoteDetail renders a quote; showCost is false for customers and the share link.
+func toQuoteDetail(q domain.Quote, showCost bool) quoteDetail {
 	history := make([]eventView, len(q.History))
 	for i, e := range q.History {
 		history[i] = eventView{Action: e.Action, Actor: toRef(e.Actor), Comment: e.Comment, At: e.At}
@@ -341,10 +413,12 @@ func toQuoteDetail(q domain.Quote) quoteDetail {
 		DiscountAmount: money(q.DiscountAmount),
 		TaxAmount:      money(q.TaxAmount),
 		GrandTotal:     money(q.GrandTotal),
+		CostTotal:      costMoney(q.CostTotal(), showCost),
+		Profit:         costMoney(q.Profit(), showCost),
 		AccessToken:    q.AccessToken,
 		SignedBy:       q.SignedBy,
 		SignedAt:       q.SignedAt,
-		Items:          toItemViews(q.Items),
+		Items:          toItemViews(q.Items, showCost),
 		History:        history,
 	}
 }
@@ -375,7 +449,7 @@ func toPublicView(v quote.PublicView) publicQuoteView {
 		VendorName:  v.VendorName,
 		VendorLogo:  v.VendorLogo,
 		GrandTotal:  money(v.Quote.GrandTotal),
-		Items:       toItemViews(v.Quote.Items),
+		Items:       toItemViews(v.Quote.Items, false),
 	}
 }
 

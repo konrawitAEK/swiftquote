@@ -19,6 +19,7 @@ import {
   Typography,
 } from '@mui/material'
 import { useEffect, useState, type FormEvent } from 'react'
+import { DownloadPdfButton } from '@/components/DownloadPdfButton'
 import { SignaturePad } from '@/components/SignaturePad'
 import { errorText, isNetworkError } from '@/lib/api/types'
 import { formatMoney } from '@/lib/pricing/pricing'
@@ -40,6 +41,7 @@ export function PublicQuote({ accessToken }: { accessToken: string }) {
   const [acceptedAt, setAcceptedAt] = useState<string | null>(null)
   const [declining, setDeclining] = useState(false)
   const [declineReason, setDeclineReason] = useState('')
+  const [pdfError, setPdfError] = useState<string | null>(null)
 
   useEffect(() => {
     publicQuoteService
@@ -99,17 +101,33 @@ export function PublicQuote({ accessToken }: { accessToken: string }) {
 
         {state.kind === 'ready' && (
           <Stack spacing={3}>
-            <Box>
-              <Typography variant="overline" color="text.secondary">
-                Quotation from
-              </Typography>
-              <Typography variant="h4" component="h1" sx={{ fontWeight: 700 }}>
-                {state.quote.vendorName}
-              </Typography>
-              <Typography color="text.secondary">
-                No. {state.quote.quoteNumber} · Valid until {state.quote.expiryDate}
-              </Typography>
-            </Box>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={2}
+              sx={{ justifyContent: 'space-between', alignItems: { sm: 'flex-end' } }}
+            >
+              <Box>
+                <Typography variant="overline" color="text.secondary">
+                  Quotation from
+                </Typography>
+                <Typography variant="h4" component="h1" sx={{ fontWeight: 700 }}>
+                  {state.quote.vendorName}
+                </Typography>
+                <Typography color="text.secondary">
+                  No. {state.quote.quoteNumber} · Valid until {state.quote.expiryDate}
+                </Typography>
+              </Box>
+              <Box sx={{ flexShrink: 0 }}>
+                <DownloadPdfButton
+                  download={() => publicQuoteService.downloadPdf(accessToken, state.quote.quoteNumber)}
+                  onError={(e) =>
+                    setPdfError(isNetworkError(e) ? 'Cannot reach the server. Please try again.' : errorText(e, 'Could not download the PDF'))
+                  }
+                />
+              </Box>
+            </Stack>
+
+            {pdfError && <Alert severity="error">{pdfError}</Alert>}
 
             <Card>
               <Box sx={{ overflowX: 'auto' }}>

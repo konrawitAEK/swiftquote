@@ -21,6 +21,11 @@
       </div>
       @if (can(); as c) {
         <div class="row actions">
+          @if (canDownload()) {
+            <button mat-stroked-button type="button" [disabled]="downloading()" (click)="downloadPdf(q.quoteNumber)">
+              <mat-icon>download</mat-icon>{{ downloading() ? 'Downloading…' : 'Download PDF' }}
+            </button>
+          }
           @if (c.edit) {
             <a mat-stroked-button [routerLink]="['/quotes', q.id, 'edit']">Edit</a>
           }
@@ -85,6 +90,11 @@
               <th class="right">Unit price</th>
               <th class="right">Discount</th>
               <th class="right">Amount (excl. VAT)</th>
+              @if (showCost()) {
+                <th class="right">Unit cost</th>
+                <th class="right">Cost total</th>
+                <th class="right">Profit</th>
+              }
             </tr>
           </thead>
           <tbody>
@@ -99,8 +109,13 @@
                 </td>
                 <td class="right">{{ it.quantity }}</td>
                 <td class="right">{{ money(it.unitPrice) }}</td>
-                <td class="right">{{ discount(it.discountPercent) }}</td>
+                <td class="right">{{ discount(it.discountType, it.discountValue) }}</td>
                 <td class="right">{{ money(it.lineTotal) }}</td>
+                @if (showCost()) {
+                  <td class="right muted">{{ optionalMoney(it.unitCost) }}</td>
+                  <td class="right muted">{{ optionalMoney(it.costTotal) }}</td>
+                  <td class="right" [class.loss]="(it.profit ?? 0) < 0">{{ optionalMoney(it.profit) }}</td>
+                }
               </tr>
             }
           </tbody>
@@ -112,6 +127,15 @@
         <app-total-row label="VAT" [value]="money(q.taxAmount)" />
         <hr />
         <app-total-row label="Grand total" [value]="money(q.grandTotal)" [strong]="true" />
+        @if (q.costTotal !== undefined || q.profit !== undefined) {
+          <hr />
+          @if (q.costTotal !== undefined) {
+            <app-total-row label="Cost total" [value]="optionalMoney(q.costTotal)" />
+          }
+          @if (q.profit !== undefined) {
+            <app-total-row label="Profit (before VAT)" [value]="optionalMoney(q.profit)" />
+          }
+        }
       </mat-card-content>
     </mat-card>
 

@@ -58,6 +58,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/products": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List products with price, cost and stock, including retired ones (admin, woc, wo, rm)
+         * @description RMs may only put active products on quote lines. Customers get 403.
+         */
+        get: operations["listProducts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/quotes": {
         parameters: {
             query?: never;
@@ -95,6 +115,28 @@ export interface paths {
         get: operations["getQuote"];
         /** Replace a draft quotation (its creator only) */
         put: operations["updateQuote"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/quotes/{id}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Download the quote as a PDF to send to the customer
+         * @description Same visibility as GET /quotes/{id} (admin 403). Only approved, sent, viewed, accepted or rejected quotes; otherwise 409 "conflict: cannot export a quote that is <status>". Downloading never changes the status.
+         */
+        get: operations["getQuotePdf"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -357,6 +399,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/products": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a product (admin)
+         * @description Validation messages (400 details), first pass: "name is required", "categoryId is required", "unitPrice is required", "unitCost is required", "unitPrice must not be negative", "unitCost must not be negative", "stock must not be negative"; then "categoryId is not an active category". 409 product "<name>" already exists (names are unique per tenant).
+         */
+        post: operations["createProduct"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/products/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace a product's name, category, price, cost, stock and active flag (admin)
+         * @description Same messages as create, plus "active is required". Retiring (active false) keeps the product on existing quotes but RMs can no longer pick it. Changing the cost does not change existing quote lines. 404 "not found: product not found".
+         */
+        put: operations["updateProduct"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/products/{id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete a product (admin)
+         * @description Only a product that no quote line uses can be deleted; otherwise 409 "conflict: product is used on quotes; retire it instead". Sent as POST; any body is ignored.
+         */
+        post: operations["deleteProduct"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/categories": {
         parameters: {
             query?: never;
@@ -406,7 +512,7 @@ export interface paths {
         put?: never;
         /**
          * Delete a product category (admin)
-         * @description Only a category that no quote line uses can be deleted (409 otherwise); retire it with active false to hide it instead. Sent as POST; no body is needed and any body is ignored.
+         * @description Only a category that no quote line and no product uses can be deleted. 409 "conflict: category is used on quotes; retire it instead" is checked first, then 409 "conflict: category is used by products; move them to another category first". Retire it with active false to hide it instead. Sent as POST; no body is needed and any body is ignored.
          */
         post: operations["deleteCategory"];
         delete?: never;
@@ -429,6 +535,28 @@ export interface paths {
          * @description Only quotes in sent, viewed, accepted or rejected are reachable; opening a sent quote marks it viewed.
          */
         get: operations["getPublicQuote"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/quotes/{accessToken}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accessToken: components["parameters"]["AccessToken"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Download a sent quote as a PDF by its share link, without login
+         * @description Same reachability as GET /public/quotes/{accessToken} (404 otherwise); does not mark the quote viewed.
+         */
+        get: operations["getPublicQuotePdf"];
         put?: never;
         post?: never;
         delete?: never;
@@ -526,18 +654,56 @@ export interface components {
             name: string;
             active: boolean;
         };
+        /** @enum {string} */
+        DiscountType: "percent" | "amount";
+        Product: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            category: components["schemas"]["UserRef"];
+            /** @description default selling price per unit */
+            unitPrice: number;
+            unitCost: number;
+            /** @description null when stock is not tracked */
+            stock: number | null;
+            active: boolean;
+        };
+        CreateProductRequest: {
+            name: string;
+            /** Format: uuid */
+            categoryId: string;
+            unitPrice: number;
+            unitCost: number;
+            /** @description omit or null to not track stock */
+            stock?: number | null;
+        };
+        UpdateProductRequest: {
+            name: string;
+            /** Format: uuid */
+            categoryId: string;
+            unitPrice: number;
+            unitCost: number;
+            /** @description omit or null to not track stock */
+            stock?: number | null;
+            active: boolean;
+        };
+        /** @description Validation messages (400 details), first pass: "items[i].productId is required", "items[i].quantity is required", "items[i].discountType "x" is not a valid DiscountType"; then "items[i].productId is not an active product"; then pricing: "items[i]: quantity must be at least 1", "items[i]: unitPrice must not be negative", "items[i]: discountValue must not be negative", "items[i]: discountValue must be between 0 and 100" (percent), "items[i]: discountValue must not exceed the line amount" (amount), "items[i]: taxPercent must be between 0 and 100". */
         QuoteItemInput: {
-            title: string;
             /**
              * Format: uuid
-             * @description an active product category
+             * @description an active product; gives the line its title and category
              */
-            categoryId: string;
+            productId: string;
             description?: string;
             quantity: number;
-            unitPrice: number;
-            /** @default 0 */
-            discountPercent: number;
+            /** @description defaults to the product's unitPrice */
+            unitPrice?: number;
+            discountType?: components["schemas"]["DiscountType"];
+            /**
+             * @description percent (0..100) or an amount for the whole line (0..quantity*unitPrice), per discountType (default percent)
+             * @default 0
+             */
+            discountValue: number;
             /** @default 7 */
             taxPercent: number;
         };
@@ -566,16 +732,28 @@ export interface components {
             createdBy: components["schemas"]["UserRef"] | null;
         };
         QuoteItemView: {
+            /** @description null for lines created before products existed */
+            product: components["schemas"]["UserRef"] | null;
             title: string;
             /** @description null for lines created before categories existed */
             category: components["schemas"]["UserRef"] | null;
             description: string | null;
             quantity: number;
             unitPrice: number;
-            discountPercent: number;
+            discountType: components["schemas"]["DiscountType"];
+            /** @description as entered: a percent or an amount */
+            discountValue: number;
+            /** @description the discount in money for this line */
+            discountAmount: number;
             taxPercent: number;
             /** @description after discount, before VAT */
             lineTotal: number;
+            /** @description Product cost when the line was saved; null for lines without one. Omitted for customers and the share link. */
+            unitCost?: number | null;
+            /** @description round(quantity * unitCost); null when unitCost is null. Omitted for customers and the share link. */
+            costTotal?: number | null;
+            /** @description lineTotal - costTotal; null when unitCost is null. Omitted for customers and the share link. */
+            profit?: number | null;
         };
         QuoteEvent: {
             action: components["schemas"]["QuoteEventAction"];
@@ -600,6 +778,10 @@ export interface components {
             discountAmount: number;
             taxAmount: number;
             grandTotal: number;
+            /** @description Sum of line costTotal; null if any line has no cost. Omitted for customers. */
+            costTotal?: number | null;
+            /** @description subtotal - discountAmount - costTotal (before VAT); null if any line has no cost. Omitted for customers. */
+            profit?: number | null;
             /** Format: uuid */
             accessToken?: string;
             signedBy?: string | null;
@@ -893,6 +1075,28 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    listProducts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Products ordered by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     listQuotes: {
         parameters: {
             query?: {
@@ -996,6 +1200,32 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["QuoteNotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getQuotePdf: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The quote as a PDF (Content-Type application/pdf, Content-Disposition attachment; filename="<quoteNumber>.pdf"). Vendor, client, quote number, dates, lines (title, description, quantity, unit price, discount, amount), subtotal, discount, VAT, grand total and, once accepted, the signer and date. Never contains cost or profit. Text is rendered with an embedded Thai-capable font. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["QuoteNotFound"];
@@ -1368,6 +1598,89 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
+    createProduct: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProductRequest"];
+            };
+        };
+        responses: {
+            /** @description Product created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateProduct: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProductRequest"];
+            };
+        };
+        responses: {
+            /** @description Product updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    deleteProduct: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     createCategory: {
         parameters: {
             query?: never;
@@ -1469,6 +1782,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PublicQuoteView"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getPublicQuotePdf: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accessToken: components["parameters"]["AccessToken"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The quote as a PDF (Content-Type application/pdf, Content-Disposition attachment; filename="<quoteNumber>.pdf"). Vendor, client, quote number, dates, lines (title, description, quantity, unit price, discount, amount), subtotal, discount, VAT, grand total and, once accepted, the signer and date. Never contains cost or profit. Text is rendered with an embedded Thai-capable font. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
                 };
             };
             404: components["responses"]["NotFound"];

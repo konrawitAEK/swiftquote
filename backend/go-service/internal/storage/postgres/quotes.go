@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/shopspring/decimal"
 
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/domain"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/quote"
@@ -113,16 +114,19 @@ func (s *Store) Replace(ctx context.Context, q *domain.Quote, ev quote.NewEvent)
 func insertItems(ctx context.Context, tx pgx.Tx, q *domain.Quote) error {
 	batch := &pgx.Batch{}
 	for i, it := range q.Items {
-		var categoryID *uuid.UUID
+		var categoryID, productID *uuid.UUID
 		if it.Category != nil {
 			categoryID = &it.Category.ID
 		}
+		if it.Product != nil {
+			productID = &it.Product.ID
+		}
 		batch.Queue(`
 			INSERT INTO quote_items (id, quote_id, title, description, quantity, unit_price,
-				discount_percent, tax_percent, line_total, position, category_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+				discount_type, discount_value, tax_percent, line_total, position, category_id, product_id, unit_cost)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 			it.ID, q.ID, it.Title, it.Description, it.Quantity, it.UnitPrice,
-			it.DiscountPercent, it.TaxPercent, it.LineTotal, i, categoryID,
+			string(it.DiscountType), it.DiscountValue, it.TaxPercent, it.LineTotal, i, categoryID, productID, it.UnitCost,
 		)
 	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
@@ -232,7 +236,8 @@ func (s *Store) Transition(ctx context.Context, id uuid.UUID, from []domain.Quot
 	})
 }
 
-func (s *Store) Accept(ctx context.Context, id uuid.UUID, from []domain.QuoteStatus, signedBy, signatureData string, ev quote.NewEvent) error {
+func (s *Store) Accept(ctx context.Context, id uuid.UUID, from []domain.QuoteStatus, signedBy, signatureData string,
+	uses []quote.StockUse, ev quote.NewEvent) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE quotes SET status = 'accepted', signed_by = $2, signature_data = $3, signed_at = $4
@@ -244,16 +249,72 @@ func (s *Store) Accept(ctx context.Context, id uuid.UUID, from []domain.QuoteSta
 		if tag.RowsAffected() == 0 {
 			return domain.ErrConflict
 		}
+		if err := deductStock(ctx, tx, uses); err != nil {
+			return err
+		}
 		return insertEvent(ctx, tx, id, ev)
 	})
 }
 
+// deductStock takes each use from its product's stock with a guarded update, in order; untracked products are
+// skipped. The first product without enough stock aborts the transaction with *quote.StockShortage.
+func deductStock(ctx context.Context, tx pgx.Tx, uses []quote.StockUse) error {
+	if len(uses) == 0 {
+		return nil
+	}
+	// Lock the rows in id order first so two accepts sharing products can't deadlock; the checks below still run
+	// in line order, which decides which product a 409 names.
+	ids := make([]string, len(uses))
+	for i, u := range uses {
+		ids[i] = u.ProductID.String()
+	}
+	if _, err := tx.Exec(ctx, `
+		SELECT id FROM products WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`, ids); err != nil {
+		return fmt.Errorf("lock products: %w", err)
+	}
+	for _, u := range uses {
+		tag, err := tx.Exec(ctx, `
+			UPDATE products SET stock = stock - $2 WHERE id = $1 AND stock IS NOT NULL AND stock >= $2`,
+			u.ProductID, u.Quantity)
+		if err != nil {
+			return fmt.Errorf("deduct stock: %w", err)
+		}
+		if tag.RowsAffected() == 1 {
+			continue
+		}
+		var name string
+		var stock *decimal.Decimal
+		err = tx.QueryRow(ctx, `SELECT name, stock FROM products WHERE id = $1`, u.ProductID).Scan(&name, &stock)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("read stock: %w", err)
+		}
+		if stock != nil {
+			return &quote.StockShortage{Name: name, Available: *stock}
+		}
+	}
+	return nil
+}
+
+// OrganizationName implements quote.Repository.
+func (s *Store) OrganizationName(ctx context.Context, orgID uuid.UUID) (string, error) {
+	var name string
+	if err := s.pool.QueryRow(ctx, `SELECT name FROM organizations WHERE id = $1`, orgID).Scan(&name); err != nil {
+		return "", fmt.Errorf("organization name: %w", err)
+	}
+	return name, nil
+}
+
 func (s *Store) items(ctx context.Context, quoteID uuid.UUID) ([]domain.QuoteItem, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT i.id, i.title, COALESCE(i.description, ''), i.quantity, i.unit_price, i.discount_percent,
-			i.tax_percent, i.line_total, c.id, c.name
+		SELECT i.id, i.title, COALESCE(i.description, ''), i.quantity, i.unit_price, i.discount_type, i.discount_value,
+			ROUND(i.quantity * i.unit_price, 2) - i.line_total, i.tax_percent, i.line_total, i.unit_cost,
+			c.id, c.name, p.id, p.name
 		FROM quote_items i
 		LEFT JOIN product_categories c ON c.id = i.category_id
+		LEFT JOIN products p ON p.id = i.product_id
 		WHERE i.quote_id = $1
 		ORDER BY i.position, i.id`, quoteID)
 	if err != nil {
@@ -261,11 +322,15 @@ func (s *Store) items(ctx context.Context, quoteID uuid.UUID) ([]domain.QuoteIte
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.QuoteItem, error) {
 		var it domain.QuoteItem
-		var categoryID *uuid.UUID
-		var categoryName *string
-		err := row.Scan(&it.ID, &it.Title, &it.Description, &it.Quantity, &it.UnitPrice,
-			&it.DiscountPercent, &it.TaxPercent, &it.LineTotal, &categoryID, &categoryName)
+		var categoryID, productID *uuid.UUID
+		var categoryName, productName *string
+		var discountType string
+		err := row.Scan(&it.ID, &it.Title, &it.Description, &it.Quantity, &it.UnitPrice, &discountType,
+			&it.DiscountValue, &it.DiscountAmount, &it.TaxPercent, &it.LineTotal, &it.UnitCost,
+			&categoryID, &categoryName, &productID, &productName)
+		it.DiscountType = domain.DiscountType(discountType)
 		it.Category = ref(categoryID, categoryName)
+		it.Product = ref(productID, productName)
 		return it, err
 	})
 }
