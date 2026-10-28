@@ -1,14 +1,15 @@
 openapi: 3.0.3
 info:
   title: SwiftQuote Interchangeable API
-  version: 2.1.0
+  version: 3.0.0
   description: >-
     Canonical API specification for the SwiftQuote multi-tenant engine.
 
 
     Roles (one per user, read from the database on every request so changes apply immediately):
 
-    - admin: manages users, team structure and product categories only; no access to quotes or the dashboard.
+    - admin (shown as "Back Office"): manages users, team structure, product categories and products (price, cost,
+      stock); no access to quotes or the dashboard.
 
     - rm: creates and edits their own quotes, submits them for approval, and sends approved quotes.
 
@@ -22,6 +23,26 @@ info:
     Quote workflow: draft -> pending_approval -> approved -> sent -> viewed -> accepted | rejected.
     A WO may return a pending quote to draft with a comment. Only drafts can be edited.
     expired is never stored: a quote is expired once its expiryDate has passed.
+
+
+    Products: every quote line is a product from the catalog (title and category come from the product; unitPrice
+    defaults to the product price and may be changed). Each line keeps the product's unit cost at the time it was
+    saved. Cost and profit are visible to every role except customers: they are omitted from customer responses and
+    the public share link, not just hidden in the UI.
+
+
+    Stock: a product with stock null is not tracked (services, licences). For tracked products the quote's total
+    quantity per product must not exceed stock when the RM submits or sends it (409), and stock is deducted when the
+    customer accepts, in the same transaction (409 if it is no longer available; nothing is deducted then).
+    Message: "conflict: not enough stock for <product name> (available <n>)", where n is the stock rounded to
+    2 places with trailing zeros and a trailing point removed (25, 2.5, 0).
+
+
+    Discounts: per line, either a percent of the line amount (discountType percent, discountValue 0..100) or a fixed
+    amount in the quote currency for the whole line (discountType amount, discountValue 0..line amount).
+
+
+    PDF: an approved, sent, viewed, accepted or rejected quote can be downloaded as a PDF (no cost figures).
 
 
     Error semantics: 401 no or invalid session; 404 the quote is not visible to the caller (or does not exist);
@@ -44,9 +65,9 @@ tags:
   - name: Dashboard
     description: Sales summary for WOC
   - name: Catalog
-    description: Product categories used to classify quote lines
+    description: Products and product categories used on quote lines
   - name: Admin
-    description: Users, team structure and product categories (admin only)
+    description: Users, team structure, product categories and products (admin, shown as "Back Office")
   - name: ClientPortal
     description: Public, token-based quote access for customers
 
@@ -110,6 +131,26 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ProductCategory'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /products:
+    get:
+      summary: List products with price, cost and stock, including retired ones (admin, woc, wo, rm)
+      description: RMs may only put active products on quote lines. Customers get 403.
+      operationId: listProducts
+      tags: [Catalog]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Products ordered by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Product'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
@@ -224,6 +265,36 @@ paths:
           $ref: '#/components/responses/QuoteNotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+
+  /quotes/{id}/pdf:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Download the quote as a PDF to send to the customer
+      description: >-
+        Same visibility as GET /quotes/{id} (admin 403). Only approved, sent, viewed, accepted or rejected quotes;
+        otherwise 409 "conflict: cannot export a quote that is <status>". Downloading never changes the status.
+      operationId: getQuotePdf
+      tags: [Quotes]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: >-
+            The quote as a PDF (Content-Type application/pdf, Content-Disposition attachment;
+            filename="<quoteNumber>.pdf"). Vendor, client, quote number, dates, lines (title, description, quantity,
+            unit price, discount, amount), subtotal, discount, VAT, grand total and, once accepted, the signer and
+            date. Never contains cost or profit. Text is rendered with an embedded Thai-capable font.
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/QuoteNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /quotes/{id}/submit:
     parameters:
@@ -579,6 +650,94 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
+  /admin/products:
+    post:
+      summary: Add a product (admin)
+      description: >-
+        Validation messages (400 details), first pass: "name is required", "categoryId is required",
+        "unitPrice is required", "unitCost is required", "unitPrice must not be negative",
+        "unitCost must not be negative", "stock must not be negative"; then "categoryId is not an active category".
+        409 product "<name>" already exists (names are unique per tenant).
+      operationId: createProduct
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductRequest'
+      responses:
+        '201':
+          description: Product created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/products/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      summary: Replace a product's name, category, price, cost, stock and active flag (admin)
+      description: >-
+        Same messages as create, plus "active is required". Retiring (active false) keeps the product on existing
+        quotes but RMs can no longer pick it. Changing the cost does not change existing quote lines.
+        404 "not found: product not found".
+      operationId: updateProduct
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProductRequest'
+      responses:
+        '200':
+          description: Product updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/products/{id}/delete:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      summary: Delete a product (admin)
+      description: >-
+        Only a product that no quote line uses can be deleted; otherwise 409
+        "conflict: product is used on quotes; retire it instead". Sent as POST; any body is ignored.
+      operationId: deleteProduct
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      responses:
+        '204':
+          description: Deleted
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /admin/categories:
     post:
       summary: Add a product category (admin)
@@ -644,7 +803,9 @@ paths:
     post:
       summary: Delete a product category (admin)
       description: >-
-        Only a category that no quote line uses can be deleted (409 otherwise); retire it with active false to hide it instead.
+        Only a category that no quote line and no product uses can be deleted. 409 "conflict: category is used on
+        quotes; retire it instead" is checked first, then 409 "conflict: category is used by products; move them to
+        another category first". Retire it with active false to hide it instead.
         Sent as POST; no body is needed and any body is ignored.
       operationId: deleteCategory
       tags: [Admin]
@@ -675,6 +836,26 @@ paths:
                 $ref: '#/components/schemas/PublicQuoteView'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /public/quotes/{accessToken}/pdf:
+    parameters:
+      - $ref: '#/components/parameters/AccessToken'
+    get:
+      summary: Download a sent quote as a PDF by its share link, without login
+      description: Same reachability as GET /public/quotes/{accessToken} (404 otherwise); does not mark the quote viewed.
+      operationId: getPublicQuotePdf
+      tags: [ClientPortal]
+      responses:
+        '200':
+          description: >-
+            The quote as a PDF (Content-Type application/pdf, Content-Disposition attachment;
+            filename="<quoteNumber>.pdf"). Vendor, client, quote number, dates, lines (title, description, quantity,
+            unit price, discount, amount), subtotal, discount, VAT, grand total and, once accepted, the signer and
+            date. Never contains cost or profit. Text is rendered with an embedded Thai-capable font.
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /public/quotes/{accessToken}/accept:
     parameters:
@@ -855,16 +1036,65 @@ components:
         name: { type: string }
         active: { type: boolean }
 
+    DiscountType:
+      type: string
+      enum: [percent, amount]
+
+    Product:
+      type: object
+      required: [id, name, category, unitPrice, unitCost, stock, active]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        category: { $ref: '#/components/schemas/UserRef' }
+        unitPrice: { type: number, description: "default selling price per unit" }
+        unitCost: { type: number }
+        stock: { type: number, nullable: true, description: "null when stock is not tracked" }
+        active: { type: boolean }
+
+    CreateProductRequest:
+      type: object
+      required: [name, categoryId, unitPrice, unitCost]
+      properties:
+        name: { type: string }
+        categoryId: { type: string, format: uuid }
+        unitPrice: { type: number, minimum: 0 }
+        unitCost: { type: number, minimum: 0 }
+        stock: { type: number, minimum: 0, nullable: true, description: "omit or null to not track stock" }
+
+    UpdateProductRequest:
+      type: object
+      required: [name, categoryId, unitPrice, unitCost, active]
+      properties:
+        name: { type: string }
+        categoryId: { type: string, format: uuid }
+        unitPrice: { type: number, minimum: 0 }
+        unitCost: { type: number, minimum: 0 }
+        stock: { type: number, minimum: 0, nullable: true, description: "omit or null to not track stock" }
+        active: { type: boolean }
+
     QuoteItemInput:
       type: object
-      required: [title, categoryId, quantity, unitPrice]
+      description: >-
+        Validation messages (400 details), first pass: "items[i].productId is required",
+        "items[i].quantity is required", "items[i].discountType "x" is not a valid DiscountType"; then
+        "items[i].productId is not an active product"; then pricing: "items[i]: quantity must be at least 1",
+        "items[i]: unitPrice must not be negative", "items[i]: discountValue must not be negative",
+        "items[i]: discountValue must be between 0 and 100" (percent),
+        "items[i]: discountValue must not exceed the line amount" (amount),
+        "items[i]: taxPercent must be between 0 and 100".
+      required: [productId, quantity]
       properties:
-        title: { type: string }
-        categoryId: { type: string, format: uuid, description: "an active product category" }
+        productId: { type: string, format: uuid, description: "an active product; gives the line its title and category" }
         description: { type: string }
         quantity: { type: number, minimum: 1 }
-        unitPrice: { type: number, minimum: 0 }
-        discountPercent: { type: number, default: 0, minimum: 0, maximum: 100 }
+        unitPrice: { type: number, minimum: 0, description: "defaults to the product's unitPrice" }
+        discountType: { $ref: '#/components/schemas/DiscountType' }
+        discountValue:
+          type: number
+          minimum: 0
+          default: 0
+          description: "percent (0..100) or an amount for the whole line (0..quantity*unitPrice), per discountType (default percent)"
         taxPercent: { type: number, default: 7, minimum: 0, maximum: 100 }
 
     CreateQuoteRequest:
@@ -901,8 +1131,12 @@ components:
 
     QuoteItemView:
       type: object
-      required: [title, category, description, quantity, unitPrice, discountPercent, taxPercent, lineTotal]
+      required: [product, title, category, description, quantity, unitPrice, discountType, discountValue, discountAmount, taxPercent, lineTotal]
       properties:
+        product:
+          description: null for lines created before products existed
+          allOf: [{ $ref: '#/components/schemas/UserRef' }]
+          nullable: true
         title: { type: string }
         category:
           description: null for lines created before categories existed
@@ -911,9 +1145,23 @@ components:
         description: { type: string, nullable: true }
         quantity: { type: number }
         unitPrice: { type: number }
-        discountPercent: { type: number }
+        discountType: { $ref: '#/components/schemas/DiscountType' }
+        discountValue: { type: number, description: "as entered: a percent or an amount" }
+        discountAmount: { type: number, description: "the discount in money for this line" }
         taxPercent: { type: number }
         lineTotal: { type: number, description: "after discount, before VAT" }
+        unitCost:
+          type: number
+          nullable: true
+          description: "Product cost when the line was saved; null for lines without one. Omitted for customers and the share link."
+        costTotal:
+          type: number
+          nullable: true
+          description: "round(quantity * unitCost); null when unitCost is null. Omitted for customers and the share link."
+        profit:
+          type: number
+          nullable: true
+          description: "lineTotal - costTotal; null when unitCost is null. Omitted for customers and the share link."
 
     QuoteEvent:
       type: object
@@ -944,6 +1192,14 @@ components:
         discountAmount: { type: number }
         taxAmount: { type: number }
         grandTotal: { type: number }
+        costTotal:
+          type: number
+          nullable: true
+          description: "Sum of line costTotal; null if any line has no cost. Omitted for customers."
+        profit:
+          type: number
+          nullable: true
+          description: "subtotal - discountAmount - costTotal (before VAT); null if any line has no cost. Omitted for customers."
         accessToken: { type: string, format: uuid }
         signedBy: { type: string, nullable: true }
         signedAt: { type: string, format: date-time, nullable: true }
