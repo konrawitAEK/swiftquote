@@ -52,7 +52,7 @@
   @if (data(); as d) {
     <div class="tiles">
       @for (t of tiles(); track t.label) {
-        <app-stat-tile [label]="t.label" [value]="t.value" [hint]="t.hint" [hero]="t.hero ?? false" />
+        <app-stat-tile [label]="t.label" [value]="t.value" [hint]="t.hint" [hero]="t.hero ?? false" [profit]="t.profit" />
       }
     </div>
 

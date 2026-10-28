@@ -1,5 +1,6 @@
 import { Box, Card, CardContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material'
 import { InlineBar } from './InlineBar'
+import { ProfitCells, ProfitHeadCells } from './ProfitCells'
 import { byAmount, maxAmount, MEASURE_LABELS, type MeasureKey, type Summary } from './measures'
 
 function EmptyRow({ cols }: { cols: number }) {
@@ -12,7 +13,7 @@ function EmptyRow({ cols }: { cols: number }) {
   )
 }
 
-/** RM and team rankings for the selected measure. */
+/** RM and team rankings for the selected measure, with its cost, profit and margin. */
 export function RankTables({ data, measure }: { data: Summary; measure: MeasureKey }) {
   const rms = byAmount(data.byRm, measure)
   const teams = byAmount(data.byTeam, measure)
@@ -35,6 +36,7 @@ export function RankTables({ data, measure }: { data: Summary; measure: MeasureK
                 <TableCell align="right">Sent</TableCell>
                 <TableCell align="right">{measure === 'won' ? 'Won' : 'Waiting'}</TableCell>
                 <TableCell>{label}</TableCell>
+                <ProfitHeadCells />
               </TableRow>
             </TableHead>
             <TableBody sx={{ '& td': { fontVariantNumeric: 'tabular-nums' } }}>
@@ -45,12 +47,13 @@ export function RankTables({ data, measure }: { data: Summary; measure: MeasureK
                   <TableCell align="right">{r.quoteCount}</TableCell>
                   <TableCell align="right">{r.sentCount}</TableCell>
                   <TableCell align="right">{r[measure].count}</TableCell>
-                  <TableCell sx={{ minWidth: 200 }}>
+                  <TableCell sx={{ minWidth: { xs: 160, sm: 200 } }}>
                     <InlineBar value={r[measure].amount} max={rmMax} />
                   </TableCell>
+                  <ProfitCells m={r[measure]} />
                 </TableRow>
               ))}
-              {rms.length === 0 && <EmptyRow cols={6} />}
+              {rms.length === 0 && <EmptyRow cols={9} />}
             </TableBody>
           </Table>
         </TableContainer>
@@ -66,6 +69,7 @@ export function RankTables({ data, measure }: { data: Summary; measure: MeasureK
                 <TableCell>Team</TableCell>
                 <TableCell align="right">Quotes</TableCell>
                 <TableCell>{label}</TableCell>
+                <ProfitHeadCells />
               </TableRow>
             </TableHead>
             <TableBody sx={{ '& td': { fontVariantNumeric: 'tabular-nums' } }}>
@@ -73,12 +77,13 @@ export function RankTables({ data, measure }: { data: Summary; measure: MeasureK
                 <TableRow key={t.id}>
                   <TableCell>{t.name}</TableCell>
                   <TableCell align="right">{t[measure].count}</TableCell>
-                  <TableCell sx={{ minWidth: 180 }}>
+                  <TableCell sx={{ minWidth: { xs: 160, sm: 180 } }}>
                     <InlineBar value={t[measure].amount} max={teamMax} />
                   </TableCell>
+                  <ProfitCells m={t[measure]} />
                 </TableRow>
               ))}
-              {teams.length === 0 && <EmptyRow cols={3} />}
+              {teams.length === 0 && <EmptyRow cols={6} />}
             </TableBody>
           </Table>
         </TableContainer>

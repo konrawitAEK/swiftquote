@@ -12,7 +12,7 @@ import { errorText } from '../../core/api';
 import { formatMoney } from '../../core/pricing';
 import { CategoryBreakdown } from './category-breakdown';
 import { DashboardService } from '../../services/dashboard.service';
-import type { MeasureKey, Summary, View } from './measures';
+import type { Measure, MeasureKey, Summary, View } from './measures';
 import { MonthlyBars, type MonthPoint } from './monthly-bars';
 import { RankTables } from './rank-tables';
 import { StatTile } from './stat-tile';
@@ -24,6 +24,8 @@ interface Tile {
   value: string;
   hint?: string;
   hero?: boolean;
+  /** A money measure: the tile adds its profit and margin. */
+  profit?: Measure;
 }
 
 /** The headline figures for each view. */
@@ -31,28 +33,34 @@ function tilesFor(data: Summary, view: View, measure: MeasureKey): Tile[] {
   if (view === 'pending') {
     const n = data.inApproval.count;
     return [
-      { label: 'Waiting on customers', value: formatMoney(data.pending.amount), hero: true },
+      { label: 'Waiting on customers', value: formatMoney(data.pending.amount), profit: data.pending, hero: true },
       { label: 'Quotes waiting', value: String(data.pending.count), hint: 'sent or viewed, not expired' },
       {
         label: 'In internal approval',
         value: formatMoney(data.inApproval.amount),
+        profit: data.inApproval,
         hint: `${n} ${n === 1 ? 'quote' : 'quotes'} not yet sent`,
       },
-      { label: 'Sold so far', value: formatMoney(data.won.amount) },
+      { label: 'Sold so far', value: formatMoney(data.won.amount), profit: data.won },
     ];
   }
   if (view === 'category') {
     const rows = data.byCategory.filter((r) => r[measure].count > 0);
     const top = [...rows].sort((a, b) => b[measure].amount - a[measure].amount)[0];
     return [
-      { label: measure === 'won' ? 'Sold' : 'Waiting on customers', value: formatMoney(data[measure].amount), hero: true },
+      {
+        label: measure === 'won' ? 'Sold' : 'Waiting on customers',
+        value: formatMoney(data[measure].amount),
+        profit: data[measure],
+        hero: true,
+      },
       { label: 'Top category', value: top ? (top.category?.name ?? 'Uncategorized') : '—' },
-      { label: 'Top category amount', value: top ? formatMoney(top[measure].amount) : '—' },
+      { label: 'Top category amount', value: top ? formatMoney(top[measure].amount) : '—', profit: top?.[measure] },
       { label: 'Categories', value: String(rows.length), hint: 'with lines in this view' },
     ];
   }
   return [
-    { label: 'Sold', value: formatMoney(data.won.amount), hero: true },
+    { label: 'Sold', value: formatMoney(data.won.amount), profit: data.won, hero: true },
     { label: 'Quotes won', value: String(data.won.count) },
     { label: 'Quotes sent', value: String(data.sentCount) },
     { label: 'Conversion', value: percent.format(data.conversionRate), hint: 'won ÷ sent' },

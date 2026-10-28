@@ -164,3 +164,8 @@ table.data-table {
 .mat-mdc-form-field.dense {
   @include mat.form-field-density(-4);
 }
+
+// A matTooltip whose text has line breaks ("\n"), e.g. the dashboard's monthly bars.
+.sq-tooltip-lines .mdc-tooltip__surface {
+  white-space: pre-line;
+}

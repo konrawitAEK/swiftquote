@@ -1,9 +1,18 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { MatCardModule } from '@angular/material/card';
 import { InlineBar } from './inline-bar';
-import { byAmount, maxAmount, MEASURE_LABELS, type MeasureKey, type Summary } from './measures';
+import { formatMoney } from '../../core/pricing';
+import {
+  byAmount,
+  formatMargin,
+  formatSignedMoney,
+  maxAmount,
+  MEASURE_LABELS,
+  type MeasureKey,
+  type Summary,
+} from './measures';
 
-/** RM and team rankings for the selected measure. */
+/** RM and team rankings for the selected measure, with its cost, profit and margin. */
 @Component({
   selector: 'app-rank-tables',
   imports: [MatCardModule, InlineBar],
@@ -21,6 +30,9 @@ import { byAmount, maxAmount, MEASURE_LABELS, type MeasureKey, type Summary } fr
               <th class="right">Sent</th>
               <th class="right">{{ measure() === 'won' ? 'Won' : 'Waiting' }}</th>
               <th>{{ label() }}</th>
+              <th class="right cost">Cost</th>
+              <th class="right">Profit</th>
+              <th class="right">Margin</th>
             </tr>
           </thead>
           <tbody>
@@ -32,9 +44,12 @@ import { byAmount, maxAmount, MEASURE_LABELS, type MeasureKey, type Summary } fr
                 <td class="right">{{ r.sentCount }}</td>
                 <td class="right">{{ r[measure()].count }}</td>
                 <td class="bar-cell rm"><app-inline-bar [value]="r[measure()].amount" [max]="rmMax()" /></td>
+                <td class="right nowrap cost">{{ money(r[measure()].cost) }}</td>
+                <td class="right nowrap" [class.loss]="r[measure()].profit < 0">{{ signedMoney(r[measure()].profit) }}</td>
+                <td class="right nowrap" [class.loss]="r[measure()].profit < 0">{{ marginText(r[measure()]) }}</td>
               </tr>
             } @empty {
-              <tr><td colspan="6" class="empty">Nothing in this period.</td></tr>
+              <tr><td colspan="9" class="empty">Nothing in this period.</td></tr>
             }
           </tbody>
         </table>
@@ -49,6 +64,9 @@ import { byAmount, maxAmount, MEASURE_LABELS, type MeasureKey, type Summary } fr
               <th>Team</th>
               <th class="right">Quotes</th>
               <th>{{ label() }}</th>
+              <th class="right cost">Cost</th>
+              <th class="right">Profit</th>
+              <th class="right">Margin</th>
             </tr>
           </thead>
           <tbody>
@@ -57,9 +75,12 @@ import { byAmount, maxAmount, MEASURE_LABELS, type MeasureKey, type Summary } fr
                 <td>{{ t.name }}</td>
                 <td class="right">{{ t[measure()].count }}</td>
                 <td class="bar-cell team"><app-inline-bar [value]="t[measure()].amount" [max]="teamMax()" /></td>
+                <td class="right nowrap cost">{{ money(t[measure()].cost) }}</td>
+                <td class="right nowrap" [class.loss]="t[measure()].profit < 0">{{ signedMoney(t[measure()].profit) }}</td>
+                <td class="right nowrap" [class.loss]="t[measure()].profit < 0">{{ marginText(t[measure()]) }}</td>
               </tr>
             } @empty {
-              <tr><td colspan="3" class="empty">Nothing in this period.</td></tr>
+              <tr><td colspan="6" class="empty">Nothing in this period.</td></tr>
             }
           </tbody>
         </table>
@@ -87,6 +108,24 @@ import { byAmount, maxAmount, MEASURE_LABELS, type MeasureKey, type Summary } fr
     .team {
       min-width: 180px;
     }
+    @media (max-width: 599px) {
+      .rm,
+      .team {
+        min-width: 160px;
+      }
+    }
+    .nowrap {
+      white-space: nowrap;
+    }
+    .loss {
+      color: var(--sq-error);
+    }
+    /* Cost is the first column to go at phone width; profit and margin stay. */
+    @media (max-width: 599px) {
+      .cost {
+        display: none;
+      }
+    }
   `,
 })
 export class RankTables {
@@ -98,4 +137,7 @@ export class RankTables {
   protected readonly rmMax = computed(() => maxAmount(this.rms().map((r) => r[this.measure()])));
   protected readonly teamMax = computed(() => maxAmount(this.teams().map((t) => t[this.measure()])));
   protected readonly label = computed(() => MEASURE_LABELS[this.measure()]);
+  protected readonly money = formatMoney;
+  protected readonly signedMoney = formatSignedMoney;
+  protected readonly marginText = formatMargin;
 }
