@@ -31,6 +31,8 @@ ACME = "00000000-0000-4000-8000-000000000003"
 TEAM_ALPHA = "00000000-0000-4000-8000-000000000020"
 WO2 = "00000000-0000-4000-8000-000000000014"
 SOFTWARE, SERVICES, HARDWARE = (f"00000000-0000-4000-8000-0000000000{n}" for n in (30, 31, 32))
+# Seeded products (V9); none of these track stock, so concurrent runs can't affect each other's stock.
+HOSTING, WEBSITE, CONSULTING = (f"00000000-0000-4000-8000-0000000000{n}" for n in (41, 42, 43))
 SIGNATURE = {"signerName": "Jane Buyer", "signatureDataUrl": "data:image/png;base64,AAAA"}
 
 
@@ -47,6 +49,20 @@ def request(base, method, path, token=None, body=None, raw=None):
         status, raw = err.code, err.read()
     # parse_float=str keeps money formatting ("201.50") so rendering differences are caught.
     return status, json.loads(raw, parse_float=str) if raw else None
+
+
+def request_pdf(base, path, token=None):
+    """A PDF download: compares the headers and that the body is a PDF; errors are compared as JSON."""
+    req = urllib.request.Request(base + path)
+    if token:
+        req.add_header("Authorization", "Bearer " + token)
+    try:
+        with urllib.request.urlopen(req) as res:
+            return res.status, {"contentType": res.headers.get("Content-Type"),
+                                "disposition": res.headers.get("Content-Disposition"),
+                                "isPdf": res.read(5) == b"%PDF-"}
+    except urllib.error.HTTPError as err:
+        return err.code, json.loads(err.read(), parse_float=str)
 
 
 class Normaliser:
@@ -94,10 +110,10 @@ def scenario(base, prefix):
             "expiryDate": expiry,
             "notes": "Parity run",
             "items": [
-                {"title": "Consulting", "categoryId": SERVICES, "quantity": 2, "unitPrice": 100, "discountPercent": 10},
-                {"title": "Setup fee", "categoryId": SOFTWARE, "quantity": 1, "unitPrice": 1.5},
-                {"title": "Rounding probe", "categoryId": HARDWARE, "quantity": 3, "unitPrice": 33.33,
-                 "discountPercent": 15, "taxPercent": 7},
+                {"productId": CONSULTING, "quantity": 2, "unitPrice": 100, "discountType": "percent", "discountValue": 10},
+                {"productId": HOSTING, "quantity": 1, "unitPrice": 1.5},
+                {"productId": WEBSITE, "description": "Rounding probe", "quantity": 3, "unitPrice": 33.33,
+                 "discountType": "amount", "discountValue": 15.555, "taxPercent": 7},
             ],
         }
         body.update(overrides)
@@ -135,6 +151,34 @@ def scenario(base, prefix):
     yield ("category update without active", *request(base, "PUT", f"/admin/categories/{retired['id']}", admin, {"name": prefix + "Retired"}))
     yield ("category unknown id", *request(base, "PUT", "/admin/categories/00000000-0000-4000-8000-0000000000ff", admin, {"name": "x", "active": True}))
 
+    # Products (cost visible to every role except customers).
+    status, rows = request(base, "GET", "/products", rm)
+    yield "products as rm", status, mine(rows or [], lambda r: r["name"])
+    status, rows = request(base, "GET", "/products", wo)
+    yield "products as wo", status, mine(rows or [], lambda r: r["name"])
+    yield ("products as customer", *request(base, "GET", "/products", acme))
+    status, gadget = request(base, "POST", "/admin/products", admin, {
+        "name": prefix + "Gadget", "categoryId": HARDWARE, "unitPrice": 100, "unitCost": 60, "stock": 5})
+    yield "admin creates tracked product", status, gadget
+    status, oldprod = request(base, "POST", "/admin/products", admin, {
+        "name": f" {prefix}Old plan ", "categoryId": SOFTWARE, "unitPrice": 10, "unitCost": 4.5})
+    yield "admin creates untracked product", status, oldprod
+    yield ("product duplicate name", *request(base, "POST", "/admin/products", admin, {
+        "name": prefix + "Gadget", "categoryId": HARDWARE, "unitPrice": 1, "unitCost": 1}))
+    yield ("product missing fields", *request(base, "POST", "/admin/products", admin, {"name": " "}))
+    yield ("product negative values", *request(base, "POST", "/admin/products", admin, {
+        "name": prefix + "Neg", "categoryId": HARDWARE, "unitPrice": -1, "unitCost": -2, "stock": -3}))
+    yield ("product retired category", *request(base, "POST", "/admin/products", admin, {
+        "name": prefix + "Neg", "categoryId": retired["id"], "unitPrice": 1, "unitCost": 1}))
+    yield ("product as rm", *request(base, "POST", "/admin/products", rm, {
+        "name": prefix + "Nope", "categoryId": HARDWARE, "unitPrice": 1, "unitCost": 1}))
+    yield ("product update without active", *request(base, "PUT", f"/admin/products/{oldprod['id']}", admin, {
+        "name": prefix + "Old plan", "categoryId": SOFTWARE, "unitPrice": 10, "unitCost": 4.5}))
+    yield ("product unknown id", *request(base, "PUT", "/admin/products/00000000-0000-4000-8000-0000000000ff", admin, {
+        "name": "x", "categoryId": SOFTWARE, "unitPrice": 1, "unitCost": 1, "active": True}))
+    yield ("product retire", *request(base, "PUT", f"/admin/products/{oldprod['id']}", admin, {
+        "name": prefix + "Old plan", "categoryId": SOFTWARE, "unitPrice": 12, "unitCost": 5, "active": False}))
+
     # Create and validation.
     status, created = request(base, "POST", "/quotes", rm, quote("Q-1"))
     yield "rm creates quote", status, created
@@ -146,9 +190,18 @@ def scenario(base, prefix):
     yield ("past expiry", *request(base, "POST", "/quotes", rm, quote("Q-2", expiryDate="2000-01-01")))
     yield ("missing fields", *request(base, "POST", "/quotes", rm, {"quoteNumber": " ", "items": [{"title": ""}]}))
     yield ("invalid item values", *request(base, "POST", "/quotes", rm, quote("Q-2", items=[
-        {"title": "x", "categoryId": SOFTWARE, "quantity": 0.5, "unitPrice": -1, "discountPercent": 101}])))
-    yield ("retired category", *request(base, "POST", "/quotes", rm, quote("Q-2", items=[
-        {"title": "x", "categoryId": retired["id"], "quantity": 1, "unitPrice": 1}])))
+        {"productId": CONSULTING, "quantity": 0.5, "unitPrice": -1, "discountType": "percent", "discountValue": 101}])))
+    yield ("bad discount type", *request(base, "POST", "/quotes", rm, quote("Q-2", items=[
+        {"productId": CONSULTING, "quantity": 1, "discountType": "coupon", "discountValue": 5}])))
+    yield ("amount discount above the line", *request(base, "POST", "/quotes", rm, quote("Q-2", items=[
+        {"productId": CONSULTING, "quantity": 2, "unitPrice": 100, "discountType": "amount", "discountValue": 200.01},
+        {"productId": HOSTING, "quantity": 1, "discountType": "amount", "discountValue": -1}])))
+    yield ("retired product", *request(base, "POST", "/quotes", rm, quote("Q-2", items=[
+        {"productId": oldprod["id"], "quantity": 1}])))
+    yield ("unknown product", *request(base, "POST", "/quotes", rm, quote("Q-2", items=[
+        {"productId": "00000000-0000-4000-8000-0000000000ff", "quantity": 1}])))
+    yield ("price defaults to the product", *request(base, "POST", "/quotes", rm, quote("Q-P", items=[
+        {"productId": WEBSITE, "quantity": 1, "discountType": "amount", "discountValue": 5000}])))
     yield ("unknown client", *request(base, "POST", "/quotes", rm, quote("Q-2", clientId="00000000-0000-4000-8000-0000000000ff")))
     yield ("bad date format", *without_details(request(base, "POST", "/quotes", rm, quote("Q-2", expiryDate="01/01/2099"))))
     yield ("malformed json", *without_details(request(base, "POST", "/quotes", rm, raw=b"{nope")))
@@ -167,6 +220,8 @@ def scenario(base, prefix):
     yield ("public malformed token", *request(base, "GET", "/public/quotes/nope"))
 
     # Approval round trip with a return to draft and an edit.
+    yield ("pdf of a draft", *request_pdf(base, f"/quotes/{qid}/pdf", rm))
+    yield ("public pdf before sent", *request_pdf(base, f"/public/quotes/{access}/pdf"))
     yield ("approve a draft", *request(base, "POST", f"/quotes/{qid}/approve", wo, {}))
     yield ("send a draft", *request(base, "POST", f"/quotes/{qid}/send", rm, {}))
     yield ("submit", *request(base, "POST", f"/quotes/{qid}/submit", rm, {"comment": "Please review"}))
@@ -177,8 +232,8 @@ def scenario(base, prefix):
     yield ("return without comment", *request(base, "POST", f"/quotes/{qid}/return", wo, {}))
     yield ("return with comment", *request(base, "POST", f"/quotes/{qid}/return", wo, {"comment": "Discount too high"}))
     yield ("rm edits draft", *request(base, "PUT", f"/quotes/{qid}", rm, quote("Q-1", items=[
-        {"title": "Consulting", "categoryId": SERVICES, "quantity": 2, "unitPrice": 100, "discountPercent": 5},
-        {"title": "Rounding probe", "categoryId": HARDWARE, "quantity": 3, "unitPrice": 33.33, "discountPercent": 15, "taxPercent": 7},
+        {"productId": CONSULTING, "quantity": 2, "unitPrice": 100, "discountValue": 5},
+        {"productId": WEBSITE, "quantity": 3, "unitPrice": 33.33, "discountType": "percent", "discountValue": 15, "taxPercent": 7},
     ])))
     yield ("other rm cannot edit", *request(base, "PUT", f"/quotes/{qid}", rm3, quote("Q-1")))
     yield ("submit again after edit", *request(base, "POST", f"/quotes/{qid}/submit", rm, {}))
@@ -186,6 +241,12 @@ def scenario(base, prefix):
     yield ("wo cannot send", *request(base, "POST", f"/quotes/{qid}/send", wo, {}))
     yield ("rm sends", *request(base, "POST", f"/quotes/{qid}/send", rm, {}))
     yield ("send again", *request(base, "POST", f"/quotes/{qid}/send", rm, {}))
+
+    yield ("pdf as rm", *request_pdf(base, f"/quotes/{qid}/pdf", rm))
+    yield ("pdf as admin", *request_pdf(base, f"/quotes/{qid}/pdf", admin))
+    yield ("pdf as other rm", *request_pdf(base, f"/quotes/{qid}/pdf", rm3))
+    yield ("public pdf", *request_pdf(base, f"/public/quotes/{access}/pdf"))
+    yield ("public pdf bad token", *request_pdf(base, "/public/quotes/nope/pdf"))
 
     # Customer side.
     yield ("other customer", *request(base, "GET", f"/quotes/{qid}", globex))
@@ -198,6 +259,39 @@ def scenario(base, prefix):
     yield ("accept again", *request(base, "POST", f"/quotes/{qid}/accept", acme, SIGNATURE))
     yield ("public accept after accept", *request(base, "POST", f"/public/quotes/{access}/accept", body=SIGNATURE))
     yield ("public view after accept", *request(base, "GET", f"/public/quotes/{access}"))
+    yield ("customer pdf after accept", *request_pdf(base, f"/quotes/{qid}/pdf", acme))
+
+    # Stock: this run's own tracked product (stock 5), so concurrent runs never share stock.
+    def flow(number, qty):
+        status, q = request(base, "POST", "/quotes", rm, quote(number, items=[{"productId": gadget["id"], "quantity": qty}]))
+        return q["id"], q["accessToken"]
+    s1, s1access = flow("Q-S1", 3)
+    for step, token in (("submit", rm), ("approve", wo), ("send", rm)):
+        yield (f"stock quote {step}", *request(base, "POST", f"/quotes/{s1}/{step}", token, {}))
+    yield ("stock quote accepted (deducts 3)", *request(base, "POST", f"/public/quotes/{s1access}/accept", body=SIGNATURE))
+    s2, s2access = flow("Q-S2", 3)
+    yield ("submit beyond stock", *request(base, "POST", f"/quotes/{s2}/submit", rm, {}))
+    yield ("lower the quantity", *request(base, "PUT", f"/quotes/{s2}", rm, quote("Q-S2", items=[{"productId": gadget["id"], "quantity": 2}])))
+    yield ("submit within stock", *request(base, "POST", f"/quotes/{s2}/submit", rm, {}))
+    yield ("approve within stock", *request(base, "POST", f"/quotes/{s2}/approve", wo, {}))
+    product = lambda stock: {"name": prefix + "Gadget", "categoryId": HARDWARE, "unitPrice": 100, "unitCost": 60, "stock": stock, "active": True}
+    yield ("stock drops to 1.5", *request(base, "PUT", f"/admin/products/{gadget['id']}", admin, product(1.5)))
+    yield ("send beyond stock", *request(base, "POST", f"/quotes/{s2}/send", rm, {}))
+    request(base, "PUT", f"/admin/products/{gadget['id']}", admin, product(2))
+    yield ("send within stock", *request(base, "POST", f"/quotes/{s2}/send", rm, {}))
+    request(base, "PUT", f"/admin/products/{gadget['id']}", admin, product(1))
+    yield ("accept beyond stock", *request(base, "POST", f"/public/quotes/{s2access}/accept", body=SIGNATURE))
+    yield ("still sent after failed accept", *request(base, "GET", f"/public/quotes/{s2access}"))
+    status, rows = request(base, "GET", "/products", admin)
+    yield "stock unchanged after failed accept", status, [r for r in rows or [] if r["id"] == gadget["id"]]
+    yield ("delete product in use", *request(base, "POST", f"/admin/products/{gadget['id']}/delete", admin))
+    status, solo = request(base, "POST", "/admin/categories", admin, {"name": prefix + "Only products"})
+    status, lone = request(base, "POST", "/admin/products", admin, {
+        "name": prefix + "Lone", "categoryId": solo["id"], "unitPrice": 1, "unitCost": 1})
+    yield ("delete category used by products", *request(base, "POST", f"/admin/categories/{solo['id']}/delete", admin))
+    yield ("delete unused product", *request(base, "POST", f"/admin/products/{lone['id']}/delete", admin, raw=b"{nope"))
+    yield ("delete product again", *request(base, "POST", f"/admin/products/{lone['id']}/delete", admin))
+    yield ("delete emptied category", *request(base, "POST", f"/admin/categories/{solo['id']}/delete", admin))
 
     # A second quote, declined through the share link.
     status, second = request(base, "POST", "/quotes", rm, quote("Q-2"))
@@ -303,6 +397,7 @@ def snapshot(base):
     yield ("admin users", *request(base, "GET", "/admin/users", admin))
     yield ("admin teams", *request(base, "GET", "/admin/teams", admin))
     yield ("admin categories", *request(base, "GET", "/admin/categories", admin))
+    yield ("products", *request(base, "GET", "/products", admin))
 
 
 def compare(steps, a_base, b_base, a_norm, b_norm):

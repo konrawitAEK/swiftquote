@@ -1,6 +1,9 @@
 package domain
 
-import "github.com/google/uuid"
+import (
+	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
+)
 
 type Role string
 
@@ -66,4 +69,15 @@ type Client struct {
 	OrganizationID uuid.UUID
 	Name           string
 	Email          string
+}
+
+// Product is a catalog entry quote lines are made from. Stock nil means it is not tracked.
+type Product struct {
+	ID        uuid.UUID
+	Name      string
+	Category  Ref
+	UnitPrice decimal.Decimal
+	UnitCost  decimal.Decimal
+	Stock     *decimal.Decimal
+	Active    bool
 }

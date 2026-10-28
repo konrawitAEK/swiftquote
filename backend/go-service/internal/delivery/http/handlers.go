@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/client"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/dashboard"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/domain"
+	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/pdf"
 	"github.com/konrawitAEK/swiftquote/backend/go-service/internal/quote"
 )
 
@@ -48,6 +50,11 @@ func (h *handlers) requireAuth(c *fiber.Ctx) error {
 
 func actor(c *fiber.Ctx) domain.Actor {
 	return c.Locals(actorKey).(domain.Actor)
+}
+
+// showCost is false for customers: cost and profit are left out of their responses, not just hidden.
+func showCost(a domain.Actor) bool {
+	return a.Role != domain.RoleCustomer
 }
 
 func decode(c *fiber.Ctx, v any) error {
@@ -139,6 +146,49 @@ func (h *handlers) updateCategory(c *fiber.Ctx) error {
 	return c.JSON(toCategoryView(cat))
 }
 
+func (h *handlers) listProducts(c *fiber.Ctx) error {
+	ps, err := h.catalog.ListProducts(c.UserContext(), actor(c))
+	if err != nil {
+		return err
+	}
+	out := make([]productView, len(ps))
+	for i, p := range ps {
+		out[i] = toProductView(p)
+	}
+	return c.JSON(out)
+}
+
+func (h *handlers) createProduct(c *fiber.Ctx) error {
+	var req productRequest
+	if err := decode(c, &req); err != nil {
+		return err
+	}
+	p, err := h.catalog.CreateProduct(c.UserContext(), actor(c), req.toInput(false))
+	if err != nil {
+		return err
+	}
+	return c.Status(fiber.StatusCreated).JSON(toProductView(p))
+}
+
+func (h *handlers) updateProduct(c *fiber.Ctx) error {
+	var req productRequest
+	if err := decode(c, &req); err != nil {
+		return err
+	}
+	p, err := h.catalog.UpdateProduct(c.UserContext(), actor(c), pathID(c), req.toInput(true))
+	if err != nil {
+		return err
+	}
+	return c.JSON(toProductView(p))
+}
+
+func (h *handlers) deleteProduct(c *fiber.Ctx) error {
+	if err := h.catalog.DeleteProduct(c.UserContext(), actor(c), pathID(c)); err != nil {
+		return err
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
 func (h *handlers) listQuotes(c *fiber.Ctx) error {
 	a := actor(c)
 	if a.Role == domain.RoleAdmin {
@@ -168,7 +218,7 @@ func (h *handlers) createQuote(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return c.Status(fiber.StatusCreated).JSON(toQuoteDetail(q))
+	return c.Status(fiber.StatusCreated).JSON(toQuoteDetail(q, true))
 }
 
 func (h *handlers) updateQuote(c *fiber.Ctx) error {
@@ -180,15 +230,16 @@ func (h *handlers) updateQuote(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return c.JSON(toQuoteDetail(q))
+	return c.JSON(toQuoteDetail(q, true))
 }
 
 func (h *handlers) getQuote(c *fiber.Ctx) error {
-	q, err := h.quotes.Get(c.UserContext(), actor(c), pathID(c))
+	a := actor(c)
+	q, err := h.quotes.Get(c.UserContext(), a, pathID(c))
 	if err != nil {
 		return err
 	}
-	return c.JSON(toQuoteDetail(q))
+	return c.JSON(toQuoteDetail(q, showCost(a)))
 }
 
 type commentAction func(s *quote.Service, c *fiber.Ctx, a domain.Actor, id uuid.UUID, comment *string) (domain.Quote, error)
@@ -200,11 +251,12 @@ func (h *handlers) quoteAction(action commentAction) fiber.Handler {
 		if err != nil {
 			return err
 		}
-		q, err := action(h.quotes, c, actor(c), pathID(c), comment)
+		a := actor(c)
+		q, err := action(h.quotes, c, a, pathID(c), comment)
 		if err != nil {
 			return err
 		}
-		return c.JSON(toQuoteDetail(q))
+		return c.JSON(toQuoteDetail(q, showCost(a)))
 	}
 }
 
@@ -233,11 +285,12 @@ func (h *handlers) acceptQuote(c *fiber.Ctx) error {
 	if err := decode(c, &req); err != nil {
 		return err
 	}
-	q, err := h.quotes.Accept(c.UserContext(), actor(c), pathID(c), req.SignerName, req.SignatureDataURL)
+	a := actor(c)
+	q, err := h.quotes.Accept(c.UserContext(), a, pathID(c), req.SignerName, req.SignatureDataURL)
 	if err != nil {
 		return err
 	}
-	return c.JSON(toQuoteDetail(q))
+	return c.JSON(toQuoteDetail(q, showCost(a)))
 }
 
 func (h *handlers) dashboardSummary(c *fiber.Ctx) error {
@@ -379,7 +432,7 @@ func (h *handlers) acceptPublicQuote(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return c.JSON(toQuoteDetail(q))
+	return c.JSON(toQuoteDetail(q, false))
 }
 
 func (h *handlers) rejectPublicQuote(c *fiber.Ctx) error {
@@ -391,7 +444,7 @@ func (h *handlers) rejectPublicQuote(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return c.JSON(toQuoteDetail(q))
+	return c.JSON(toQuoteDetail(q, false))
 }
 
 // accessToken parses the path token; a malformed token becomes uuid.Nil and is reported like an unknown one.
@@ -401,4 +454,34 @@ func accessToken(c *fiber.Ctx) uuid.UUID {
 		return uuid.Nil
 	}
 	return token
+}
+
+func (h *handlers) getQuotePdf(c *fiber.Ctx) error {
+	doc, err := h.quotes.Export(c.UserContext(), actor(c), pathID(c))
+	if err != nil {
+		return err
+	}
+	return sendPdf(c, doc)
+}
+
+func (h *handlers) getPublicQuotePdf(c *fiber.Ctx) error {
+	doc, err := h.quotes.ExportPublic(c.UserContext(), accessToken(c))
+	if err != nil {
+		return err
+	}
+	return sendPdf(c, doc)
+}
+
+// unsafeFilenameChars are replaced by "_", one per character, in the download name.
+var unsafeFilenameChars = regexp.MustCompile(`[^A-Za-z0-9._-]`)
+
+func sendPdf(c *fiber.Ctx, doc quote.Document) error {
+	body, err := pdf.Render(pdf.Input{Quote: doc.Quote, VendorName: doc.VendorName})
+	if err != nil {
+		return err
+	}
+	name := unsafeFilenameChars.ReplaceAllString(doc.Quote.QuoteNumber, "_") + ".pdf"
+	c.Set(fiber.HeaderContentType, "application/pdf")
+	c.Set(fiber.HeaderContentDisposition, fmt.Sprintf(`attachment; filename="%s"`, name))
+	return c.Send(body)
 }

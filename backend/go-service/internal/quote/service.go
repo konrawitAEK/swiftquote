@@ -58,8 +58,12 @@ type NewEvent struct {
 
 type Repository interface {
 	ClientExists(ctx context.Context, orgID, clientID uuid.UUID) (bool, error)
-	// ActiveCategoryIDs returns the ids of the tenant's active product categories.
-	ActiveCategoryIDs(ctx context.Context, orgID uuid.UUID) (map[uuid.UUID]bool, error)
+	// ActiveProducts returns the tenant's active products by id.
+	ActiveProducts(ctx context.Context, orgID uuid.UUID) (map[uuid.UUID]domain.Product, error)
+	// TrackedStock returns the current stock of those of ids whose stock is tracked (not null).
+	TrackedStock(ctx context.Context, orgID uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]decimal.Decimal, error)
+	// OrganizationName is the vendor shown on the PDF.
+	OrganizationName(ctx context.Context, orgID uuid.UUID) (string, error)
 	// Create persists q, its items and ev; a duplicate number returns ErrDuplicateNumber.
 	Create(ctx context.Context, q *domain.Quote, ev NewEvent) error
 	// Replace overwrites a draft's fields and items; domain.ErrConflict if it is no longer a draft.
@@ -70,9 +74,32 @@ type Repository interface {
 	GetByAccessToken(ctx context.Context, accessToken uuid.UUID) (PublicView, error)
 	// Transition sets status to `to` only if it is one of `from` (else domain.ErrConflict) and records ev.
 	Transition(ctx context.Context, id uuid.UUID, from []domain.QuoteStatus, to domain.QuoteStatus, ev NewEvent) error
-	// Accept records the signature like Transition to accepted.
-	Accept(ctx context.Context, id uuid.UUID, from []domain.QuoteStatus, signedBy, signatureData string, ev NewEvent) error
+	// Accept records the signature like Transition to accepted and, in the same transaction, deducts uses
+	// from tracked products' stock. If a product no longer has enough it rolls back and returns *StockShortage.
+	Accept(ctx context.Context, id uuid.UUID, from []domain.QuoteStatus, signedBy, signatureData string,
+		uses []StockUse, ev NewEvent) error
 }
+
+// StockUse is a quote's total quantity of one product, in order of the product's first line.
+type StockUse struct {
+	ProductID uuid.UUID
+	Name      string
+	Quantity  decimal.Decimal
+}
+
+// StockShortage reports a tracked product without enough stock.
+type StockShortage struct {
+	Name      string
+	Available decimal.Decimal
+}
+
+func (e *StockShortage) Error() string {
+	// Stock is shown rounded to 2 places without trailing zeros: 25, 2.5, 0.
+	return domain.Conflict(fmt.Sprintf("not enough stock for %s (available %s)",
+		e.Name, e.Available.Round(2).String())).Error()
+}
+
+func (e *StockShortage) Unwrap() error { return domain.ErrConflict }
 
 // CreateInput is a create/update payload as decoded; nil means the field was absent.
 type CreateInput struct {
@@ -84,13 +111,13 @@ type CreateInput struct {
 }
 
 type ItemInput struct {
-	Title           string
-	CategoryID      *uuid.UUID
-	Description     string
-	Quantity        *decimal.Decimal
-	UnitPrice       *decimal.Decimal
-	DiscountPercent *decimal.Decimal // default 0
-	TaxPercent      *decimal.Decimal // default 7
+	ProductID     *uuid.UUID
+	Description   string
+	Quantity      *decimal.Decimal
+	UnitPrice     *decimal.Decimal // default: the product's unitPrice
+	DiscountType  *string          // default percent
+	DiscountValue *decimal.Decimal // default 0
+	TaxPercent    *decimal.Decimal // default 7
 }
 
 var defaultTaxPercent = decimal.NewFromInt(7)
@@ -197,21 +224,21 @@ func (s *Service) validate(ctx context.Context, orgID uuid.UUID, in CreateInput)
 		verr.Add("expiryDate is required")
 	}
 	for i, it := range in.Items {
-		if it.CategoryID == nil {
-			verr.Add(fmt.Sprintf("items[%d].categoryId is required", i))
+		if it.ProductID == nil {
+			verr.Add(fmt.Sprintf("items[%d].productId is required", i))
 		}
 		if it.Quantity == nil {
 			verr.Add(fmt.Sprintf("items[%d].quantity is required", i))
 		}
-		if it.UnitPrice == nil {
-			verr.Add(fmt.Sprintf("items[%d].unitPrice is required", i))
+		if it.DiscountType != nil && !domain.DiscountType(*it.DiscountType).Valid() {
+			verr.Add(fmt.Sprintf("items[%d].discountType %q is not a valid DiscountType", i, *it.DiscountType))
 		}
 	}
 	if err := verr.OrNil(); err != nil {
 		return validated{}, err
 	}
 
-	categories, err := s.repo.ActiveCategoryIDs(ctx, orgID)
+	products, err := s.repo.ActiveProducts(ctx, orgID)
 	if err != nil {
 		return validated{}, err
 	}
@@ -222,27 +249,39 @@ func (s *Service) validate(ctx context.Context, orgID uuid.UUID, in CreateInput)
 	if v.expiryDate.Before(s.today()) {
 		verr.Add("expiryDate must not be in the past")
 	}
+	productsOK := true
 	for i, it := range in.Items {
-		if strings.TrimSpace(it.Title) == "" {
-			verr.Add(fmt.Sprintf("items[%d].title is required", i))
+		p, ok := products[*it.ProductID]
+		if !ok {
+			verr.Add(fmt.Sprintf("items[%d].productId is not an active product", i))
+			productsOK = false
+			continue
 		}
-		if !categories[*it.CategoryID] {
-			verr.Add(fmt.Sprintf("items[%d].categoryId is not an active category", i))
+		discountType := domain.DiscountPercent
+		if it.DiscountType != nil {
+			discountType = domain.DiscountType(*it.DiscountType)
 		}
+		cost := p.UnitCost
 		v.items = append(v.items, domain.QuoteItem{
-			ID:              uuid.New(),
-			Title:           it.Title,
-			Category:        &domain.Ref{ID: *it.CategoryID},
-			Description:     it.Description,
-			Quantity:        *it.Quantity,
-			UnitPrice:       *it.UnitPrice,
-			DiscountPercent: orDefault(it.DiscountPercent, decimal.Zero),
-			TaxPercent:      orDefault(it.TaxPercent, defaultTaxPercent),
+			ID:            uuid.New(),
+			Product:       &domain.Ref{ID: p.ID, Name: p.Name},
+			Title:         p.Name,
+			Category:      &domain.Ref{ID: p.Category.ID, Name: p.Category.Name},
+			Description:   it.Description,
+			Quantity:      *it.Quantity,
+			UnitPrice:     orDefault(it.UnitPrice, p.UnitPrice),
+			DiscountType:  discountType,
+			DiscountValue: orDefault(it.DiscountValue, decimal.Zero),
+			TaxPercent:    orDefault(it.TaxPercent, defaultTaxPercent),
+			UnitCost:      &cost,
 		})
 	}
-	totals, err := Calculate(v.items)
-	if err != nil {
-		verr.Add(err.Error())
+	// Pricing messages need every line's price, so they follow only once all products resolved.
+	var totals Totals
+	if productsOK {
+		if totals, err = Calculate(v.items); err != nil {
+			verr.Add(err.Error())
+		}
 	}
 	if err := verr.OrNil(); err != nil {
 		return validated{}, err
@@ -319,6 +358,9 @@ func (s *Service) Submit(ctx context.Context, a domain.Actor, id uuid.UUID, comm
 	if q.CreatorTeamWO == nil {
 		return domain.Quote{}, domain.Conflict("you must be in a team led by a WO to submit")
 	}
+	if err := s.checkStock(ctx, q); err != nil {
+		return domain.Quote{}, err
+	}
 	return s.transition(ctx, a, q, "submit", []domain.QuoteStatus{domain.StatusDraft}, domain.StatusPendingApproval,
 		domain.EventSubmitted, comment)
 }
@@ -364,6 +406,9 @@ func (s *Service) Send(ctx context.Context, a domain.Actor, id uuid.UUID) (domai
 	if s.isExpired(q) {
 		return domain.Quote{}, domain.Conflict("quote has expired")
 	}
+	if err := s.checkStock(ctx, q); err != nil {
+		return domain.Quote{}, err
+	}
 	return s.transition(ctx, a, q, "send", []domain.QuoteStatus{domain.StatusApproved}, domain.StatusSent,
 		domain.EventSent, nil)
 }
@@ -383,7 +428,8 @@ func (s *Service) Accept(ctx context.Context, a domain.Actor, id uuid.UUID, sign
 	if err := s.respondable(q, "accept"); err != nil {
 		return domain.Quote{}, err
 	}
-	err = s.repo.Accept(ctx, q.ID, domain.RespondableStatuses, signer, signatureData, s.event(domain.EventAccepted, &a.UserID, nil))
+	err = s.repo.Accept(ctx, q.ID, domain.RespondableStatuses, signer, signatureData, stockUses(q),
+		s.event(domain.EventAccepted, &a.UserID, nil))
 	if err != nil {
 		return domain.Quote{}, s.raced(ctx, a.TenantID, q.ID, "accept", err)
 	}
@@ -431,7 +477,8 @@ func (s *Service) AcceptPublic(ctx context.Context, accessToken uuid.UUID, signe
 	if !slices.Contains(domain.RespondableStatuses, v.Quote.Status) {
 		return domain.Quote{}, stateConflict("accept", v.Quote.Status)
 	}
-	err = s.repo.Accept(ctx, v.Quote.ID, domain.RespondableStatuses, signer, signatureData, s.event(domain.EventAccepted, nil, nil))
+	err = s.repo.Accept(ctx, v.Quote.ID, domain.RespondableStatuses, signer, signatureData, stockUses(v.Quote),
+		s.event(domain.EventAccepted, nil, nil))
 	if err != nil {
 		return domain.Quote{}, s.raced(ctx, v.Quote.OrganizationID, v.Quote.ID, "accept", err)
 	}
@@ -514,7 +561,8 @@ func (s *Service) transition(ctx context.Context, a domain.Actor, q domain.Quote
 
 // raced turns a lost conditional update into the same conflict message the pre-check would have given.
 func (s *Service) raced(ctx context.Context, orgID, id uuid.UUID, verb string, err error) error {
-	if !errors.Is(err, domain.ErrConflict) {
+	var shortage *StockShortage
+	if !errors.Is(err, domain.ErrConflict) || errors.As(err, &shortage) {
 		return err
 	}
 	q, getErr := s.repo.Get(ctx, orgID, id)
@@ -565,6 +613,86 @@ func (s *Service) customerView(ctx context.Context, q domain.Quote) (domain.Quot
 	}
 	fresh.History = customerHistory(fresh.History)
 	return fresh, nil
+}
+
+// ExportableStatuses are the states in which a quote can be downloaded as a PDF.
+var ExportableStatuses = []domain.QuoteStatus{
+	domain.StatusApproved, domain.StatusSent, domain.StatusViewed, domain.StatusAccepted, domain.StatusRejected,
+}
+
+// Document is what a quote PDF is rendered from.
+type Document struct {
+	Quote      domain.Quote
+	VendorName string
+}
+
+// Export returns a visible quote for its PDF, like Get but without marking it viewed.
+func (s *Service) Export(ctx context.Context, a domain.Actor, id uuid.UUID) (Document, error) {
+	if a.Role == domain.RoleAdmin {
+		return Document{}, domain.ErrRoleForbidden
+	}
+	q, err := s.visible(ctx, a, id)
+	if err != nil {
+		return Document{}, err
+	}
+	if !slices.Contains(ExportableStatuses, q.Status) {
+		return Document{}, stateConflict("export", q.Status)
+	}
+	vendor, err := s.repo.OrganizationName(ctx, q.OrganizationID)
+	if err != nil {
+		return Document{}, err
+	}
+	return Document{Quote: q, VendorName: vendor}, nil
+}
+
+// ExportPublic returns a quote reachable by share link for its PDF, without marking it viewed.
+func (s *Service) ExportPublic(ctx context.Context, accessToken uuid.UUID) (Document, error) {
+	v, err := s.publicQuote(ctx, accessToken)
+	if err != nil {
+		return Document{}, err
+	}
+	return Document{Quote: v.Quote, VendorName: v.VendorName}, nil
+}
+
+// stockUses totals the quote's quantity per product, in order of each product's first line.
+// Lines without a product (created before products existed) are ignored.
+func stockUses(q domain.Quote) []StockUse {
+	var uses []StockUse
+	index := map[uuid.UUID]int{}
+	for _, it := range q.Items {
+		if it.Product == nil {
+			continue
+		}
+		if i, ok := index[it.Product.ID]; ok {
+			uses[i].Quantity = uses[i].Quantity.Add(it.Quantity)
+			continue
+		}
+		index[it.Product.ID] = len(uses)
+		uses = append(uses, StockUse{ProductID: it.Product.ID, Name: it.Product.Name, Quantity: it.Quantity})
+	}
+	return uses
+}
+
+// checkStock rejects a quote that needs more of a tracked product than is in stock (first product in line order).
+func (s *Service) checkStock(ctx context.Context, q domain.Quote) error {
+	uses := stockUses(q)
+	if len(uses) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, len(uses))
+	for i, u := range uses {
+		ids[i] = u.ProductID
+	}
+	stock, err := s.repo.TrackedStock(ctx, q.OrganizationID, ids)
+	if err != nil {
+		return err
+	}
+	for _, u := range uses {
+		if available, tracked := stock[u.ProductID]; tracked && u.Quantity.GreaterThan(available) {
+			return &StockShortage{Name: u.Name, Available: available}
+		}
+	}
+	return nil
 }
 
 func (s *Service) event(action domain.EventAction, actor *uuid.UUID, comment *string) NewEvent {

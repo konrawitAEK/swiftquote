@@ -61,17 +61,53 @@ type QuoteEvent struct {
 	At      time.Time
 }
 
+// DiscountType says how a line's DiscountValue is read: a percent of the line or an amount for the whole line.
+type DiscountType string
+
+const (
+	DiscountPercent DiscountType = "percent"
+	DiscountAmount  DiscountType = "amount"
+)
+
+func (t DiscountType) Valid() bool { return t == DiscountPercent || t == DiscountAmount }
+
 // QuoteItem is a single priced line. Monetary fields use decimal, never float.
 type QuoteItem struct {
-	ID              uuid.UUID
-	Title           string
-	Category        *Ref // nil for lines created before categories existed
-	Description     string
-	Quantity        decimal.Decimal
-	UnitPrice       decimal.Decimal
-	DiscountPercent decimal.Decimal
-	TaxPercent      decimal.Decimal
-	LineTotal       decimal.Decimal
+	ID            uuid.UUID
+	Product       *Ref // nil for lines created before products existed
+	Title         string
+	Category      *Ref // nil for lines created before categories existed
+	Description   string
+	Quantity      decimal.Decimal
+	UnitPrice     decimal.Decimal
+	DiscountType  DiscountType
+	DiscountValue decimal.Decimal // a percent or an amount, per DiscountType
+	// DiscountAmount is the discount in money; set by pricing, or derived from LineTotal when loaded.
+	DiscountAmount decimal.Decimal
+	TaxPercent     decimal.Decimal
+	LineTotal      decimal.Decimal
+	UnitCost       *decimal.Decimal // the product's cost when the line was saved; nil for older lines
+}
+
+const moneyPlaces = 2
+
+// CostTotal is round(quantity * unitCost), or nil when the line has no cost.
+func (it QuoteItem) CostTotal() *decimal.Decimal {
+	if it.UnitCost == nil {
+		return nil
+	}
+	c := it.Quantity.Mul(*it.UnitCost).Round(moneyPlaces)
+	return &c
+}
+
+// Profit is lineTotal - costTotal (before VAT), or nil when the line has no cost.
+func (it QuoteItem) Profit() *decimal.Decimal {
+	c := it.CostTotal()
+	if c == nil {
+		return nil
+	}
+	p := it.LineTotal.Sub(*c)
+	return &p
 }
 
 type Quote struct {
@@ -97,4 +133,27 @@ type Quote struct {
 	Items         []QuoteItem
 	History       []QuoteEvent
 	CreatedAt     time.Time
+}
+
+// CostTotal sums the lines' costs; nil if any line has no cost.
+func (q Quote) CostTotal() *decimal.Decimal {
+	total := decimal.Zero
+	for _, it := range q.Items {
+		c := it.CostTotal()
+		if c == nil {
+			return nil
+		}
+		total = total.Add(*c)
+	}
+	return &total
+}
+
+// Profit is subtotal - discountAmount - costTotal (before VAT); nil if any line has no cost.
+func (q Quote) Profit() *decimal.Decimal {
+	c := q.CostTotal()
+	if c == nil {
+		return nil
+	}
+	p := q.Subtotal.Sub(q.DiscountAmount).Sub(*c)
+	return &p
 }
