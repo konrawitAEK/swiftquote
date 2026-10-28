@@ -409,9 +409,21 @@ func TestDashboard(t *testing.T) {
 	e.expect(200, "", "POST", "/api/v1/quotes/"+d+"/submit", e.as("rm1@swiftquote.dev"), nil) // in approval
 	e.create("rm3@swiftquote.dev", "Q-E")                                                     // draft, Team Beta
 
+	// Cost and profit are before VAT, from lines with a unit cost. Consulting: 2 x 900 = 1800 against 180 (-1620);
+	// CRM: 1 x 1800 = 1800 against 1.50 (-1798.50); so a whole quote costs 3600 for -3418.50 profit.
+	// Q-A's CRM line predates products (no cost), leaving it 1800 / -1620.
+	if _, err := e.pool.Exec(context.Background(),
+		`UPDATE quote_items SET product_id = NULL, unit_cost = NULL WHERE quote_id = $1 AND position = 1`, a); err != nil {
+		t.Fatal(err)
+	}
+
 	woc := e.as("woc@swiftquote.dev")
 	s := e.expect(200, "", "GET", "/api/v1/dashboard/summary", woc, nil)
 	measure := func(v any) string { m := v.(obj); return fmt.Sprintf("%v/%v", m["count"], m["amount"]) }
+	costs := func(v any) string { m := v.(obj); return fmt.Sprintf("%v/%v", m["cost"], m["profit"]) }
+	assertEq(t, "won cost", costs(s["won"]), "1800/-1620")
+	assertEq(t, "pending cost", costs(s["pending"]), "3600/-3418.5")
+	assertEq(t, "inApproval cost", costs(s["inApproval"]), "3600/-3418.5")
 	assertEq(t, "won", measure(s["won"]), "1/194.21")
 	assertEq(t, "pending", measure(s["pending"]), "1/194.21")
 	assertEq(t, "inApproval", measure(s["inApproval"]), "1/194.21")
@@ -425,6 +437,9 @@ func TestDashboard(t *testing.T) {
 	assertEq(t, "months", len(months), 2)
 	assertEq(t, "this month won", measure(months[0].(obj)["won"]), "1/194.21")
 	assertEq(t, "next month pending", measure(months[1].(obj)["pending"]), "1/194.21")
+	assertEq(t, "this month won cost", costs(months[0].(obj)["won"]), "1800/-1620")
+	assertEq(t, "this month pending cost", costs(months[0].(obj)["pending"]), "0/0")
+	assertEq(t, "next month pending cost", costs(months[1].(obj)["pending"]), "3600/-3418.5")
 
 	rms := s["byRm"].([]any)
 	assertEq(t, "rms", len(rms), 2)
@@ -433,18 +448,29 @@ func TestDashboard(t *testing.T) {
 	assertEq(t, "top rm quotes", top["quoteCount"], 4)
 	assertEq(t, "top rm sent", top["sentCount"], 3)
 	assertEq(t, "top rm pending", measure(top["pending"]), "1/194.21")
-	assertEq(t, "top team", s["byTeam"].([]any)[0].(obj)["name"], "Team Alpha")
+	assertEq(t, "top rm won cost", costs(top["won"]), "1800/-1620")
+	assertEq(t, "top rm pending cost", costs(top["pending"]), "3600/-3418.5")
+	assertEq(t, "other rm cost", costs(rms[1].(obj)["won"]), "0/0")
+	alpha := s["byTeam"].([]any)[0].(obj)
+	assertEq(t, "top team", alpha["name"], "Team Alpha")
+	assertEq(t, "top team won cost", costs(alpha["won"]), "1800/-1620")
+	assertEq(t, "top team pending cost", costs(alpha["pending"]), "3600/-3418.5")
 
 	cats := s["byCategory"].([]any)
 	assertEq(t, "categories", len(cats), 2)
 	assertEq(t, "top category", cats[0].(obj)["category"].(obj)["name"], "Services")
 	assertEq(t, "services won", measure(cats[0].(obj)["won"]), "1/192.6")
 	assertEq(t, "software pending", measure(cats[1].(obj)["pending"]), "1/1.61")
+	assertEq(t, "services won cost", costs(cats[0].(obj)["won"]), "1800/-1620")
+	assertEq(t, "services pending cost", costs(cats[0].(obj)["pending"]), "1800/-1620")
+	assertEq(t, "software won cost (uncosted line)", costs(cats[1].(obj)["won"]), "0/0")
+	assertEq(t, "software pending cost", costs(cats[1].(obj)["pending"]), "1800/-1798.5")
 
 	future := time.Now().UTC().AddDate(1, 0, 0).Format(dateLayout)
 	s = e.expect(200, "", "GET", "/api/v1/dashboard/summary?from="+future, woc, nil)
 	assertEq(t, "future range", s["sentCount"], 0)
 	assertEq(t, "future rate", s["conversionRate"], 0)
+	assertEq(t, "future won cost", costs(s["won"]), "0/0")
 	e.expect(400, "VALIDATION_ERROR", "GET", "/api/v1/dashboard/summary?from=2026-12-01&to=2026-01-01", woc, nil)
 	e.expect(400, "VALIDATION_ERROR", "GET", "/api/v1/dashboard/summary?from=yesterday", woc, nil)
 }

@@ -296,10 +296,12 @@ type updateCategoryRequest struct {
 type measureView struct {
 	Count  int         `json:"count"`
 	Amount json.Number `json:"amount"`
+	Cost   json.Number `json:"cost"`
+	Profit json.Number `json:"profit"`
 }
 
 func toMeasure(m dashboard.Measure) measureView {
-	return measureView{Count: m.Count, Amount: money(m.Amount)}
+	return measureView{Count: m.Count, Amount: money(m.Amount), Cost: money(m.Cost), Profit: money(m.Profit)}
 }
 
 type statusRowView struct {

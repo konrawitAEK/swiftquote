@@ -17,6 +17,8 @@ import (
 //   - pending: sent or viewed and not yet expired (waiting on the customer)
 //   - inApproval: pending_approval or approved (not yet with the customer)
 // Amounts are grand totals incl. VAT; category amounts are line total plus that line's VAT.
+// Cost and profit are before VAT and come only from lines with a unit cost: cost = round(quantity * unit cost, 2)
+// and profit = line total - cost, summed; a category's come from its own lines.
 
 // Range filters quotes by UTC creation date; nil bounds are open and both are inclusive.
 type Range struct {
@@ -27,14 +29,20 @@ type Range struct {
 type Measure struct {
 	Count  int
 	Amount decimal.Decimal
+	Cost   decimal.Decimal
+	Profit decimal.Decimal
 }
 
-func zero() Measure { return Measure{Amount: decimal.Zero} }
+func zero() Measure { return Measure{Amount: decimal.Zero, Cost: decimal.Zero, Profit: decimal.Zero} }
 
+func (m Measure) add(o Measure) Measure {
+	return Measure{Count: m.Count + o.Count, Amount: m.Amount.Add(o.Amount), Cost: m.Cost.Add(o.Cost), Profit: m.Profit.Add(o.Profit)}
+}
+
+// StatusRow is a status's measure; byStatus reports only its count and amount.
 type StatusRow struct {
 	Status domain.QuoteStatus
-	Count  int
-	Amount decimal.Decimal
+	Measure
 }
 
 // MonthRow groups won quotes by the month they were signed and pending ones by the month they expire.
@@ -117,17 +125,16 @@ func (s *Service) Summary(ctx context.Context, a domain.Actor, r Range) (Summary
 	}
 	out := Summary{Range: r, Won: zero(), InApproval: zero(), ConversionRate: decimal.Zero}
 	for _, st := range domain.AllStatuses {
-		row := StatusRow{Status: st, Amount: decimal.Zero}
+		row := StatusRow{Status: st, Measure: zero()}
 		if i := slices.IndexFunc(counts, func(c StatusRow) bool { return c.Status == st }); i >= 0 {
 			row = counts[i]
 		}
 		out.ByStatus = append(out.ByStatus, row)
 		if st == domain.StatusAccepted {
-			out.Won = Measure{Count: row.Count, Amount: row.Amount}
+			out.Won = row.Measure
 		}
 		if slices.Contains(inApprovalStatuses, st) {
-			out.InApproval.Count += row.Count
-			out.InApproval.Amount = out.InApproval.Amount.Add(row.Amount)
+			out.InApproval = out.InApproval.add(row.Measure)
 		}
 		if slices.Contains(sentStatuses, st) {
 			out.SentCount += row.Count
