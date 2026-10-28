@@ -2,7 +2,15 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
 import { MatCardModule } from '@angular/material/card';
 import { formatMoney } from '../../core/pricing';
 import { InlineBar } from './inline-bar';
-import { byAmount, maxAmount, MEASURE_LABELS, type MeasureKey, type Summary } from './measures';
+import {
+  byAmount,
+  formatMargin,
+  formatSignedMoney,
+  maxAmount,
+  MEASURE_LABELS,
+  type MeasureKey,
+  type Summary,
+} from './measures';
 
 /** Amount by product category (line total incl. VAT), with each category's share of the total. */
 @Component({
@@ -13,7 +21,7 @@ import { byAmount, maxAmount, MEASURE_LABELS, type MeasureKey, type Summary } fr
     <mat-card>
       <mat-card-content class="head">
         <h2 class="section-title">{{ title() }}</h2>
-        <div class="body2 muted">Line amounts after discount, incl. VAT · total {{ totalText() }}</div>
+        <div class="body2 muted">Line amounts after discount, incl. VAT · total {{ totalText() }} · cost and profit before VAT</div>
       </mat-card-content>
       <div class="table-wrap">
         <table class="data-table small">
@@ -23,6 +31,9 @@ import { byAmount, maxAmount, MEASURE_LABELS, type MeasureKey, type Summary } fr
               <th class="right">Lines</th>
               <th class="right">Share</th>
               <th>Amount</th>
+              <th class="right cost">Cost</th>
+              <th class="right">Profit</th>
+              <th class="right">Margin</th>
             </tr>
           </thead>
           <tbody>
@@ -32,9 +43,12 @@ import { byAmount, maxAmount, MEASURE_LABELS, type MeasureKey, type Summary } fr
                 <td class="right">{{ r[measure()].count }}</td>
                 <td class="right">{{ share(r[measure()].amount) }}</td>
                 <td class="bar"><app-inline-bar [value]="r[measure()].amount" [max]="max()" /></td>
+                <td class="right nowrap cost">{{ money(r[measure()].cost) }}</td>
+                <td class="right nowrap" [class.loss]="r[measure()].profit < 0">{{ signedMoney(r[measure()].profit) }}</td>
+                <td class="right nowrap" [class.loss]="r[measure()].profit < 0">{{ marginText(r[measure()]) }}</td>
               </tr>
             } @empty {
-              <tr><td colspan="4" class="empty">Nothing in this period.</td></tr>
+              <tr><td colspan="7" class="empty">Nothing in this period.</td></tr>
             }
           </tbody>
         </table>
@@ -51,6 +65,23 @@ import { byAmount, maxAmount, MEASURE_LABELS, type MeasureKey, type Summary } fr
     .bar {
       min-width: 240px;
     }
+    @media (max-width: 599px) {
+      .bar {
+        min-width: 160px;
+      }
+    }
+    .nowrap {
+      white-space: nowrap;
+    }
+    .loss {
+      color: var(--sq-error);
+    }
+    /* Cost is the first column to go at phone width; profit and margin stay. */
+    @media (max-width: 599px) {
+      .cost {
+        display: none;
+      }
+    }
   `,
 })
 export class CategoryBreakdown {
@@ -64,6 +95,9 @@ export class CategoryBreakdown {
   protected readonly totalText = computed(() => formatMoney(this.total()));
   protected readonly max = computed(() => maxAmount(this.rows().map((r) => r[this.measure()])));
   protected readonly title = computed(() => `${MEASURE_LABELS[this.measure()]} by product category`);
+  protected readonly money = formatMoney;
+  protected readonly signedMoney = formatSignedMoney;
+  protected readonly marginText = formatMargin;
 
   protected share(amount: number): string {
     const total = this.total();

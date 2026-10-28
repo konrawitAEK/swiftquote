@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { formatMoney } from '../../core/pricing';
-import { maxAmount, type Measure } from './measures';
+import { maxAmount, profitLine, type Measure } from './measures';
 
 const compact = new Intl.NumberFormat('th-TH', { notation: 'compact', maximumFractionDigits: 1 });
 
@@ -10,7 +10,7 @@ export interface MonthPoint {
   value: Measure;
 }
 
-/** Single-series column chart; values live in per-column tooltips and the y-axis ticks. */
+/** Single-series column chart; values (and each month's profit and margin) live in per-column tooltips and the y-axis ticks. */
 @Component({
   selector: 'app-monthly-bars',
   imports: [MatTooltipModule],
@@ -29,7 +29,7 @@ export interface MonthPoint {
           <div class="bars" [style.min-width.px]="rows().length * 40">
             @for (r of rows(); track r.month) {
               <!-- Full-height hit target, larger than the bar itself. -->
-              <div class="hit" [matTooltip]="tooltip(r)" matTooltipPosition="above">
+              <div class="hit" [matTooltip]="tooltip(r)" matTooltipPosition="above" matTooltipClass="sq-tooltip-lines">
                 <div class="bar" role="img" [attr.aria-label]="r.month + ': ' + money(r.value.amount)" [style.height.%]="height(r)"></div>
               </div>
             }
@@ -111,6 +111,7 @@ export class MonthlyBars {
   }
 
   protected tooltip(r: MonthPoint): string {
-    return `${r.month}: ${formatMoney(r.value.amount)} from ${r.value.count} quote${r.value.count === 1 ? '' : 's'}`;
+    const head = `${r.month}: ${formatMoney(r.value.amount)} from ${r.value.count} quote${r.value.count === 1 ? '' : 's'}`;
+    return `${head}\n${profitLine(r.value)} (before VAT)`;
   }
 }

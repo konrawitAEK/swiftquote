@@ -129,10 +129,10 @@ function Tiles({ data, view, measure }: { data: Summary; view: View; measure: Me
   if (view === 'pending') {
     return (
       <Box sx={grid}>
-        <StatTile label="Waiting on customers" value={formatMoney(data.pending.amount)} hero />
+        <StatTile label="Waiting on customers" value={formatMoney(data.pending.amount)} profit={data.pending} hero />
         <StatTile label="Quotes waiting" value={String(data.pending.count)} hint="sent or viewed, not expired" />
-        <StatTile label="In internal approval" value={formatMoney(data.inApproval.amount)} hint={`${data.inApproval.count} ${data.inApproval.count === 1 ? 'quote' : 'quotes'} not yet sent`} />
-        <StatTile label="Sold so far" value={formatMoney(data.won.amount)} />
+        <StatTile label="In internal approval" value={formatMoney(data.inApproval.amount)} profit={data.inApproval} hint={`${data.inApproval.count} ${data.inApproval.count === 1 ? 'quote' : 'quotes'} not yet sent`} />
+        <StatTile label="Sold so far" value={formatMoney(data.won.amount)} profit={data.won} />
       </Box>
     )
   }
@@ -141,16 +141,16 @@ function Tiles({ data, view, measure }: { data: Summary; view: View; measure: Me
     const top = [...rows].sort((a, b) => b[measure].amount - a[measure].amount)[0]
     return (
       <Box sx={grid}>
-        <StatTile label={measure === 'won' ? 'Sold' : 'Waiting on customers'} value={formatMoney(data[measure].amount)} hero />
+        <StatTile label={measure === 'won' ? 'Sold' : 'Waiting on customers'} value={formatMoney(data[measure].amount)} profit={data[measure]} hero />
         <StatTile label="Top category" value={top ? (top.category?.name ?? 'Uncategorized') : '—'} />
-        <StatTile label="Top category amount" value={top ? formatMoney(top[measure].amount) : '—'} />
+        <StatTile label="Top category amount" value={top ? formatMoney(top[measure].amount) : '—'} profit={top?.[measure]} />
         <StatTile label="Categories" value={String(rows.length)} hint="with lines in this view" />
       </Box>
     )
   }
   return (
     <Box sx={grid}>
-      <StatTile label="Sold" value={formatMoney(data.won.amount)} hero />
+      <StatTile label="Sold" value={formatMoney(data.won.amount)} profit={data.won} hero />
       <StatTile label="Quotes won" value={String(data.won.count)} />
       <StatTile label="Quotes sent" value={String(data.sentCount)} />
       <StatTile label="Conversion" value={percent.format(data.conversionRate)} hint="won ÷ sent" />

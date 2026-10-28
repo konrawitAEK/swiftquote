@@ -294,6 +294,7 @@ export class ClientService {
 //   - pending: sent or viewed and not yet expired (waiting on the customer)
 //   - inApproval: pending_approval or approved (not yet with the customer)
 // Amounts are grand totals incl. VAT; category amounts are line total plus that line's VAT.
+// Cost and profit are before VAT, over the lines that have a cost; a category's come from its own lines.
 
 export interface DashboardSummary {
   range: Range
@@ -319,16 +320,18 @@ export class DashboardService {
     if (a.role !== 'woc') throw roleForbidden()
     if (r.from !== null && r.to !== null && r.from > r.to) throw invalid('from must not be after to')
     const counts = await this.repo.countByStatus(a.tenantId, r)
-    const zero = (): Measure => ({ count: 0, amount: new Money(0) })
+    const zero = (): Measure => ({ count: 0, amount: new Money(0), cost: new Money(0), profit: new Money(0) })
     let won = zero()
     const inApproval = zero()
     let sentCount = 0
     const byStatus = QUOTE_STATUSES.map((status) => {
-      const row = counts.find((c) => c.status === status) ?? { status, count: 0, amount: new Money(0) }
-      if (status === 'accepted') won = { count: row.count, amount: row.amount }
+      const row = counts.find((c) => c.status === status) ?? { status, ...zero() }
+      if (status === 'accepted') won = { count: row.count, amount: row.amount, cost: row.cost, profit: row.profit }
       if (IN_APPROVAL_STATUSES.includes(status)) {
         inApproval.count += row.count
         inApproval.amount = inApproval.amount.add(row.amount)
+        inApproval.cost = inApproval.cost.add(row.cost)
+        inApproval.profit = inApproval.profit.add(row.profit)
       }
       if (SENT_STATUSES.includes(status)) sentCount += row.count
       return row

@@ -120,7 +120,7 @@ export function teamView(t: Team) {
   return { id: t.id, name: t.name, wo: refView(t.wo), members: t.members.map((m) => ({ id: m.id, name: m.name })) }
 }
 
-const measureView = (m: Measure) => ({ count: m.count, amount: money(m.amount) })
+const measureView = (m: Measure) => ({ count: m.count, amount: money(m.amount), cost: money(m.cost), profit: money(m.profit) })
 
 const categoryRowView = (r: CategoryRow) => ({
   category: refView(r.category),

@@ -1,7 +1,11 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { MatCardModule } from '@angular/material/card';
+import { isLoss, profitLine, type Measure } from './measures';
 
-/** A labelled headline number; `hero` is the one figure the current view leads with. */
+/**
+ * A labelled headline number; `hero` is the one figure the current view leads with. A tile for a money
+ * measure passes it as `profit` to get a second line with its profit and margin (before VAT).
+ */
 @Component({
   selector: 'app-stat-tile',
   imports: [MatCardModule],
@@ -11,6 +15,9 @@ import { MatCardModule } from '@angular/material/card';
       <mat-card-content>
         <div class="body2 muted">{{ label() }}</div>
         <div class="value" [class.hero]="hero()">{{ value() }}</div>
+        @if (profit()) {
+          <div class="body2 profit" [class.loss]="loss()">{{ profitText() }}</div>
+        }
         @if (hint(); as h) {
           <div class="caption">{{ h }}</div>
         }
@@ -34,6 +41,14 @@ import { MatCardModule } from '@angular/material/card';
     .value.hero {
       font-size: 44px;
     }
+    .profit {
+      margin-top: 4px;
+      color: var(--sq-muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .profit.loss {
+      color: var(--sq-error);
+    }
     @media (max-width: 899px) {
       .value.hero {
         font-size: 32px;
@@ -46,4 +61,14 @@ export class StatTile {
   readonly value = input.required<string>();
   readonly hint = input<string>();
   readonly hero = input(false);
+  readonly profit = input<Measure>();
+
+  protected readonly profitText = computed(() => {
+    const p = this.profit();
+    return p ? profitLine(p) : '';
+  });
+  protected readonly loss = computed(() => {
+    const p = this.profit();
+    return p ? isLoss(p) : false;
+  });
 }

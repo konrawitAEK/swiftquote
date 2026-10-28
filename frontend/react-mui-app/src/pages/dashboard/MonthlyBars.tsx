@@ -1,11 +1,11 @@
 import { Box, Stack, Tooltip, Typography } from '@mui/material'
 import { formatMoney } from '../../pricing/pricing'
-import { maxAmount, type Measure } from './measures'
+import { maxAmount, profitLine, type Measure } from './measures'
 
 const compact = new Intl.NumberFormat('th-TH', { notation: 'compact', maximumFractionDigits: 1 })
 const HEIGHT = 180
 
-/** Single-series column chart; values live in per-column tooltips and the y-axis ticks. */
+/** Single-series column chart; values (and each month's profit and margin) live in per-column tooltips and the y-axis ticks. */
 export function MonthlyBars({ points, empty }: { points: { month: string; value: Measure }[]; empty: string }) {
   const rows = points.filter((p) => p.value.count > 0)
   if (rows.length === 0) {
@@ -34,7 +34,13 @@ export function MonthlyBars({ points, empty }: { points: { month: string; value:
             <Tooltip
               key={r.month}
               arrow
-              title={`${r.month}: ${formatMoney(r.value.amount)} from ${r.value.count} quote${r.value.count === 1 ? '' : 's'}`}
+              title={
+                <>
+                  {`${r.month}: ${formatMoney(r.value.amount)} from ${r.value.count} quote${r.value.count === 1 ? '' : 's'}`}
+                  <br />
+                  {`${profitLine(r.value)} (before VAT)`}
+                </>
+              }
             >
               {/* Full-height hit target, larger than the bar itself. */}
               <Box sx={{ flex: 1, height: '100%', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
