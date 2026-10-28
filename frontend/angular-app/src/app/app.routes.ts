@@ -46,10 +46,12 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/dashboard/dashboard-page').then((m) => m.DashboardPage),
       },
       {
-        path: 'admin',
+        path: 'settings',
         canActivate: [roleGuard(['admin'])],
-        loadComponent: () => import('./pages/admin/admin-page').then((m) => m.AdminPage),
+        loadComponent: () => import('./pages/settings/settings-page').then((m) => m.SettingsPage),
       },
+      // The Back Office page used to live at /admin.
+      { path: 'admin', pathMatch: 'full', redirectTo: 'settings' },
     ],
   },
   { path: '**', redirectTo: homeRedirect },

@@ -8,7 +8,7 @@ import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { finalize } from 'rxjs';
 import { Alert } from '../../components/alert';
 import { errorText } from '../../core/api';
-import { AdminService } from '../../services/admin.service';
+import { SettingsService } from '../../services/settings.service';
 import type { ProductCategory } from '../../models';
 
 type Category = ProductCategory;
@@ -50,7 +50,7 @@ type Category = ProductCategory;
   `,
 })
 export class CategoryDialog {
-  private readonly adminApi = inject(AdminService);
+  private readonly settingsApi = inject(SettingsService);
   protected readonly ref = inject<MatDialogRef<CategoryDialog, boolean>>(MatDialogRef);
   protected readonly category = inject<Category | null>(MAT_DIALOG_DATA);
 
@@ -64,8 +64,8 @@ export class CategoryDialog {
     this.ref.disableClose = true;
     this.error.set(null);
     const save = this.category
-      ? this.adminApi.updateCategory(this.category.id, { name: this.name(), active: this.active() })
-      : this.adminApi.createCategory({ name: this.name() });
+      ? this.settingsApi.updateCategory(this.category.id, { name: this.name(), active: this.active() })
+      : this.settingsApi.createCategory({ name: this.name() });
     save
       .pipe(
         finalize(() => {

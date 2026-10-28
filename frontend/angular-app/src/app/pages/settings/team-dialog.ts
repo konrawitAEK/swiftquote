@@ -8,7 +8,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { finalize } from 'rxjs';
 import { Alert } from '../../components/alert';
 import { errorText } from '../../core/api';
-import { AdminService } from '../../services/admin.service';
+import { SettingsService } from '../../services/settings.service';
 import type { AdminUser, Team } from '../../models';
 
 type User = AdminUser;
@@ -62,7 +62,7 @@ export interface TeamDialogData {
   `,
 })
 export class TeamDialog {
-  private readonly adminApi = inject(AdminService);
+  private readonly settingsApi = inject(SettingsService);
   protected readonly ref = inject<MatDialogRef<TeamDialog, boolean>>(MatDialogRef);
   protected readonly data = inject<TeamDialogData>(MAT_DIALOG_DATA);
   protected readonly team = this.data.team;
@@ -77,7 +77,7 @@ export class TeamDialog {
     this.ref.disableClose = true;
     this.error.set(null);
     const body = { name: this.name(), woUserId: this.woUserId() };
-    const save = this.team ? this.adminApi.updateTeam(this.team.id, body) : this.adminApi.createTeam(body);
+    const save = this.team ? this.settingsApi.updateTeam(this.team.id, body) : this.settingsApi.createTeam(body);
     save
       .pipe(
         finalize(() => {

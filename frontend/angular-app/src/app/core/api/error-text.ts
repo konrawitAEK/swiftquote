@@ -27,3 +27,9 @@ export function errorText(
   if (!isErrorResponse(body)) return fallback;
   return body.details?.length ? `${body.message}: ${body.details.join('; ')}` : body.message;
 }
+
+/** The server's ErrorResponse behind `err`, or null (network failure, or a body that is not one). */
+export function errorBody(err: unknown): ErrorResponse | null {
+  const body: unknown = httpError(err)?.error;
+  return isErrorResponse(body) ? body : null;
+}

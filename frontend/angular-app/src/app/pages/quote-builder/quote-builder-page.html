@@ -48,89 +48,116 @@
         <h2 class="section-title lines-title">Line items</h2>
         <div class="lines">
           @for (l of lines(); track l.key; let i = $index) {
+            @let calc = totals().lines[i];
             <div class="line">
-              <mat-form-field class="dense">
-                <mat-label>Item</mat-label>
-                <input matInput required [value]="l.title" (input)="update(l.key, 'title', valueOf($event))" />
-              </mat-form-field>
-              <mat-form-field class="dense">
-                <mat-label>Category</mat-label>
-                <select
-                  matNativeControl
-                  required
-                  [value]="l.categoryId"
-                  (change)="update(l.key, 'categoryId', valueOf($event))"
-                >
-                  <option value=""></option>
-                  @for (c of categoryOptions(l.categoryId); track c.id) {
-                    <option [value]="c.id" [disabled]="!c.active" [selected]="c.id === l.categoryId">
-                      {{ c.active ? c.name : c.name + ' (retired)' }}
-                    </option>
+              <div class="line-main">
+                <mat-form-field class="dense">
+                  <mat-label>Product</mat-label>
+                  <select matNativeControl required [value]="l.productId" (change)="pickProduct(l.key, valueOf($event))">
+                    <option value=""></option>
+                    @for (p of productOptions(l.productId); track p.id) {
+                      <option [value]="p.id" [disabled]="!p.active" [selected]="p.id === l.productId">
+                        {{ productLabel(p) }}
+                      </option>
+                    }
+                  </select>
+                  @if (product(l.productId); as p) {
+                    <mat-hint>{{ p.category.name }}</mat-hint>
                   }
-                </select>
-              </mat-form-field>
-              <mat-form-field class="dense">
-                <mat-label>Qty</mat-label>
-                <input
-                  matInput
-                  type="number"
-                  min="1"
-                  step="any"
-                  required
-                  [value]="l.quantity"
-                  (input)="update(l.key, 'quantity', valueOf($event))"
-                />
-              </mat-form-field>
-              <mat-form-field class="dense">
-                <mat-label>Unit price</mat-label>
-                <input
-                  matInput
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  required
-                  [value]="l.unitPrice"
-                  (input)="update(l.key, 'unitPrice', valueOf($event))"
-                />
-              </mat-form-field>
-              <mat-form-field class="dense">
-                <mat-label>Discount</mat-label>
-                <input
-                  matInput
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="any"
-                  [value]="l.discountPercent"
-                  (input)="update(l.key, 'discountPercent', valueOf($event))"
-                />
-                <span matTextSuffix>%</span>
-              </mat-form-field>
-              <mat-form-field class="dense">
-                <mat-label>VAT</mat-label>
-                <input
-                  matInput
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="any"
-                  [value]="l.taxPercent"
-                  (input)="update(l.key, 'taxPercent', valueOf($event))"
-                />
-                <span matTextSuffix>%</span>
-              </mat-form-field>
-              <span class="line-total num">{{ money(totals().lineTotals[i]) }}</span>
-              <span matTooltip="Remove line">
-                <button
-                  mat-icon-button
-                  type="button"
-                  aria-label="Remove line"
-                  [disabled]="lines().length === 1"
-                  (click)="removeLine(l.key)"
-                >
-                  <mat-icon>delete_outline</mat-icon>
-                </button>
-              </span>
+                </mat-form-field>
+                <mat-form-field class="dense">
+                  <mat-label>Qty</mat-label>
+                  <input
+                    matInput
+                    type="number"
+                    min="1"
+                    step="any"
+                    required
+                    [value]="l.quantity"
+                    (input)="update(l.key, 'quantity', valueOf($event))"
+                  />
+                </mat-form-field>
+                <mat-form-field class="dense">
+                  <mat-label>Unit price</mat-label>
+                  <input
+                    matInput
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    [value]="l.unitPrice"
+                    (input)="update(l.key, 'unitPrice', valueOf($event))"
+                  />
+                </mat-form-field>
+                <div class="discount">
+                  <mat-button-toggle-group
+                    class="discount-type"
+                    hideSingleSelectionIndicator
+                    aria-label="Discount type"
+                    [value]="l.discountType"
+                    (change)="setDiscountType(l.key, $event.value)"
+                  >
+                    <mat-button-toggle value="percent" aria-label="Percent discount">%</mat-button-toggle>
+                    <mat-button-toggle value="amount" aria-label="Amount discount">฿</mat-button-toggle>
+                  </mat-button-toggle-group>
+                  <mat-form-field class="dense">
+                    <mat-label>Discount</mat-label>
+                    <input
+                      matInput
+                      type="number"
+                      min="0"
+                      [max]="l.discountType === 'percent' ? 100 : null"
+                      [step]="l.discountType === 'percent' ? 'any' : '0.01'"
+                      [value]="l.discountValue"
+                      (input)="update(l.key, 'discountValue', valueOf($event))"
+                    />
+                    <span matTextSuffix>{{ l.discountType === 'percent' ? '%' : '฿' }}</span>
+                  </mat-form-field>
+                </div>
+                <mat-form-field class="dense">
+                  <mat-label>VAT</mat-label>
+                  <input
+                    matInput
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="any"
+                    [value]="l.taxPercent"
+                    (input)="update(l.key, 'taxPercent', valueOf($event))"
+                  />
+                  <span matTextSuffix>%</span>
+                </mat-form-field>
+                <span class="line-total num">{{ money(calc.lineTotal) }}</span>
+                <span matTooltip="Remove line">
+                  <button
+                    mat-icon-button
+                    type="button"
+                    aria-label="Remove line"
+                    [disabled]="lines().length === 1"
+                    (click)="removeLine(l.key)"
+                  >
+                    <mat-icon>delete_outline</mat-icon>
+                  </button>
+                </span>
+              </div>
+              <div class="line-extra">
+                <mat-form-field class="dense description">
+                  <mat-label>Description (optional)</mat-label>
+                  <input matInput [value]="l.description" (input)="update(l.key, 'description', valueOf($event))" />
+                </mat-form-field>
+                <span class="body2 muted num cost">
+                  Cost {{ optionalMoney(calc.costTotal) }} · Profit
+                  <span [class.loss]="calc.profit?.isNegative()">{{ optionalMoney(calc.profit) }}</span>
+                </span>
+              </div>
+              @if (discountIssues()[i]; as issue) {
+                <p class="line-msg warn-text">{{ issue }}</p>
+              }
+              @if (stockWarning(l.productId); as warning) {
+                <p class="line-msg warn-text">{{ warning }}</p>
+              }
+              @for (message of lineErrors().get(l.key) ?? []; track $index) {
+                <p class="line-msg error-text" role="alert">{{ message }}</p>
+              }
             </div>
           }
         </div>
@@ -140,8 +167,8 @@
 
     <div class="footer">
       <p class="body2 muted note">
-        Totals update as you type using the same rounding rules as the server. Saving keeps the quotation as a
-        draft; submit it for approval from its page.
+        Totals update as you type using the same rounding rules as the server. Cost and profit are for your team
+        only; customers never see them. Saving keeps the quotation as a draft; submit it for approval from its page.
       </p>
       <mat-card class="totals">
         <mat-card-content class="stack-sm">
@@ -150,6 +177,9 @@
           <app-total-row label="VAT" [value]="money(totals().taxAmount)" />
           <hr />
           <app-total-row label="Grand total" [value]="money(totals().grandTotal)" [strong]="true" />
+          <hr />
+          <app-total-row label="Cost total" [value]="optionalMoney(totals().costTotal)" />
+          <app-total-row label="Profit (before VAT)" [value]="optionalMoney(totals().profit)" />
           <button
             mat-flat-button
             type="submit"

@@ -11,7 +11,7 @@ import { Alert } from '../../components/alert';
 import { errorText } from '../../core/api';
 import { AuthService } from '../../services/auth.service';
 import { ROLE_LABELS, ROLES } from '../../core/roles';
-import { AdminService } from '../../services/admin.service';
+import { SettingsService } from '../../services/settings.service';
 import type { AdminUser, Client, Role, Team } from '../../models';
 
 type User = AdminUser;
@@ -115,7 +115,7 @@ export interface UserDialogData {
   `,
 })
 export class UserDialog {
-  private readonly adminApi = inject(AdminService);
+  private readonly settingsApi = inject(SettingsService);
   protected readonly ref = inject<MatDialogRef<UserDialog, boolean>>(MatDialogRef);
   protected readonly data = inject<UserDialogData>(MAT_DIALOG_DATA);
   protected readonly user = this.data.user;
@@ -143,14 +143,14 @@ export class UserDialog {
       clientId: role === 'customer' && this.clientId() ? this.clientId() : null,
     };
     const save = this.user
-      ? this.adminApi.updateUser(this.user.id, {
+      ? this.settingsApi.updateUser(this.user.id, {
           name: this.name(),
           role,
           active: this.active(),
           ...placement,
           password: this.password() || null,
         })
-      : this.adminApi.createUser({ email: this.email(), name: this.name(), password: this.password(), role, ...placement });
+      : this.settingsApi.createUser({ email: this.email(), name: this.name(), password: this.password(), role, ...placement });
     save
       .pipe(
         finalize(() => {

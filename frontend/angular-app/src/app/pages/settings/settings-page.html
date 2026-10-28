@@ -1,6 +1,6 @@
 <div class="stack-lg">
   <div class="spread head">
-    <h1 class="page-title">Users &amp; teams</h1>
+    <h1 class="page-title">Settings</h1>
     <button mat-flat-button type="button" (click)="add()"><mat-icon>add</mat-icon>{{ addLabel() }}</button>
   </div>
 
@@ -136,7 +136,66 @@
               </tbody>
             </table>
             <p class="body2 muted note">
-              RMs pick a category for every quote line; the WOC dashboard can break sales down by category.
+              Every product belongs to a category; the WOC dashboard can break sales down by category.
+            </p>
+          </div>
+        }
+      </mat-tab>
+      <mat-tab [label]="'Products (' + products().length + ')'">
+        @if (users()) {
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th class="right">Selling price</th>
+                  <th class="right">Cost</th>
+                  <th class="right">Stock</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (p of products(); track p.id) {
+                  <tr [class.dim]="!p.active">
+                    <td class="strong">{{ p.name }}</td>
+                    <td>{{ p.category.name }}</td>
+                    <td class="right">{{ money(p.unitPrice) }}</td>
+                    <td class="right">{{ money(p.unitCost) }}</td>
+                    <td class="right">
+                      @if (p.stock === null) {
+                        <span class="muted">not tracked</span>
+                      } @else {
+                        {{ p.stock }}
+                      }
+                    </td>
+                    <td>
+                      <span class="pill" [class.ok]="p.active">{{ p.active ? 'Active' : 'Retired' }}</span>
+                    </td>
+                    <td class="right">
+                      <button mat-button type="button" (click)="editProduct(p)">Edit</button>
+                      <button
+                        mat-button
+                        type="button"
+                        class="danger-text"
+                        [attr.aria-label]="'Delete ' + p.name"
+                        (click)="confirmDelete('product', p)"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                } @empty {
+                  <tr>
+                    <td colspan="7" class="empty">No products yet.</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+            <p class="body2 muted note">
+              RMs can only quote active products. Cost is shown to staff but never to customers; stock is checked when
+              a quote is submitted or sent and deducted when the customer accepts.
             </p>
           </div>
         }

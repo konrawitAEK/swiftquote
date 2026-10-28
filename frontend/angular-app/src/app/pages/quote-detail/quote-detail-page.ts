@@ -13,8 +13,9 @@ import { TotalRow } from '../../components/total-row';
 import { errorText } from '../../core/api';
 import { AuthService } from '../../services/auth.service';
 import { formatDateTime } from '../../core/format';
-import { formatMoney } from '../../core/pricing';
-import { SENT_STATUSES } from '../../core/roles';
+import { saveResponse } from '../../core/download';
+import { formatDiscount, formatMoney, formatOptionalMoney } from '../../core/pricing';
+import { PDF_STATUSES, SENT_STATUSES } from '../../core/roles';
 import { AcceptCard } from './accept-card';
 import { CommentDialog, DIALOGS, type CommentDialogData, type DialogSpec } from './comment-dialog';
 import { QuoteDetailService } from '../../services/quote-detail.service';
@@ -86,8 +87,26 @@ export class QuoteDetailPage {
     return q && this.role() !== 'customer' && SENT_STATUSES.includes(q.status) && q.accessToken ? q.accessToken : null;
   });
 
+  /**
+   * Cost and profit columns: the API omits these fields for customers, so they are shown only when present
+   * (null means the cost is unknown and shows as "—").
+   */
+  protected readonly showCost = computed(() => {
+    const q = this.quote();
+    return (
+      !!q && this.role() !== 'customer' && (q.costTotal !== undefined || q.items.some((it) => it.unitCost !== undefined))
+    );
+  });
+  protected readonly canDownload = computed(() => {
+    const q = this.quote();
+    return !!q && PDF_STATUSES.includes(q.status);
+  });
+  protected readonly downloading = signal(false);
+
   protected readonly dialogs = DIALOGS;
   protected readonly money = formatMoney;
+  protected readonly optionalMoney = formatOptionalMoney;
+  protected readonly discount = formatDiscount;
   protected readonly when = formatDateTime;
   protected readonly shareUrl = shareUrl;
 
@@ -131,7 +150,19 @@ export class QuoteDetailPage {
     this.run(this.quoteApi.accept(this.id(), body)).pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
   }
 
-  protected discount(percent: number): string {
-    return Number(percent) ? `${percent}%` : '—';
+  /** Saves the PDF, named by the API's Content-Disposition, else <quoteNumber>.pdf. */
+  protected downloadPdf(quoteNumber: string): void {
+    this.downloading.set(true);
+    this.actionError.set(null);
+    this.quoteApi
+      .pdf(this.id())
+      .pipe(
+        finalize(() => this.downloading.set(false)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (res) => saveResponse(res, `${quoteNumber}.pdf`),
+        error: (err: unknown) => this.actionError.set(errorText(err, 'Could not download the PDF')),
+      });
   }
 }

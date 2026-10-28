@@ -1,2 +1,2 @@
 export { API_URL } from './api-url';
-export { errorText } from './error-text';
+export { errorBody, errorText } from './error-text';

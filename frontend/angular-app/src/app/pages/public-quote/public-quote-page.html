@@ -13,11 +13,27 @@
   @if (state(); as s) {
     @if (s.kind === 'ready') {
       <div class="stack-lg">
-        <div>
-          <div class="overline muted">Quotation from</div>
-          <h1 class="page-title">{{ s.quote.vendorName }}</h1>
-          <div class="muted">No. {{ s.quote.quoteNumber }} · Valid until {{ s.quote.expiryDate }}</div>
+        <div class="heading">
+          <div>
+            <div class="overline muted">Quotation from</div>
+            <h1 class="page-title">{{ s.quote.vendorName }}</h1>
+            <div class="muted">No. {{ s.quote.quoteNumber }} · Valid until {{ s.quote.expiryDate }}</div>
+          </div>
+          @if (s.quote.status !== 'expired') {
+            <button
+              mat-stroked-button
+              type="button"
+              class="download"
+              [disabled]="downloading()"
+              (click)="downloadPdf(s.quote.quoteNumber)"
+            >
+              <mat-icon>download</mat-icon>{{ downloading() ? 'Downloading…' : 'Download PDF' }}
+            </button>
+          }
         </div>
+        @if (downloadError(); as e) {
+          <app-alert severity="error">{{ e }}</app-alert>
+        }
 
         <mat-card>
           <div class="table-wrap">
