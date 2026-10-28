@@ -285,6 +285,8 @@ def scenario(base, prefix):
     status, rows = request(base, "GET", "/products", admin)
     yield "stock unchanged after failed accept", status, [r for r in rows or [] if r["id"] == gadget["id"]]
     yield ("delete product in use", *request(base, "POST", f"/admin/products/{gadget['id']}/delete", admin))
+    # It can't be deleted, so retire it: per-run products shouldn't pile up in the RM's product picker.
+    yield ("retire product in use", *request(base, "PUT", f"/admin/products/{gadget['id']}", admin, {**product(0), "active": False}))
     status, solo = request(base, "POST", "/admin/categories", admin, {"name": prefix + "Only products"})
     status, lone = request(base, "POST", "/admin/products", admin, {
         "name": prefix + "Lone", "categoryId": solo["id"], "unitPrice": 1, "unitCost": 1})

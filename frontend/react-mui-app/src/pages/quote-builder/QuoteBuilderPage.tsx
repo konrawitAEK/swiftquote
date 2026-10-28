@@ -181,10 +181,15 @@ export function QuoteBuilderPage() {
   const pickProduct = (key: number, p: Product | null) =>
     update(key, p ? { productId: p.id, unitPrice: String(p.unitPrice) } : { productId: '' })
 
-  /** Active products, plus the line's current one (it may have been retired since it was added). */
+  /**
+   * Active products, plus the line's current one (it may have been retired since it was added), sorted by
+   * category so the picker shows each category heading once.
+   */
   const optionsFor = (l: Line): Product[] => {
     const current = productById.get(l.productId)
-    return products.filter((p) => p.active || p.id === current?.id)
+    return products
+      .filter((p) => p.active || p.id === current?.id)
+      .sort((a, b) => a.category.name.localeCompare(b.category.name) || a.name.localeCompare(b.name))
   }
 
   const submit = async (e: FormEvent) => {
