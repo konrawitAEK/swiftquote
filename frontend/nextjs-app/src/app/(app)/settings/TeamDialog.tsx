@@ -4,7 +4,7 @@ import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, 
 import { useState } from 'react'
 import { errorText } from '@/lib/api/types'
 import type { AdminUser as User, Team, TeamRequest } from '@/models'
-import { adminService } from '@/services/adminService'
+import { settingsService } from '@/services/settingsService'
 
 /** Add a team or change its name and WO. */
 export function TeamDialog(props: { team: Team | null; wos: User[]; onClose: () => void; onSaved: () => void }) {
@@ -19,7 +19,7 @@ export function TeamDialog(props: { team: Team | null; wos: User[]; onClose: () 
     setError(null)
     try {
       const body: TeamRequest = { name, woUserId }
-      await (team ? adminService.updateTeam(team.id, body) : adminService.createTeam(body))
+      await (team ? settingsService.updateTeam(team.id, body) : settingsService.createTeam(body))
       onSaved()
     } catch (e) {
       setError(errorText(e, 'Could not save team'))

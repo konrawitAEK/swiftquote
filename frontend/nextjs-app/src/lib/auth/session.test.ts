@@ -4,7 +4,7 @@ import { encodeUser, parseUser } from './session'
 
 describe('homePath', () => {
   it('sends each role to its landing page', () => {
-    expect(homePath('admin')).toBe('/admin')
+    expect(homePath('admin')).toBe('/settings')
     expect(homePath('woc')).toBe('/dashboard')
     expect(homePath('wo')).toBe('/quotes')
     expect(homePath('rm')).toBe('/quotes')

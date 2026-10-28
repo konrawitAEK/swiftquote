@@ -4,7 +4,7 @@ import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormC
 import { useState } from 'react'
 import { errorText } from '@/lib/api/types'
 import type { ProductCategory as Category } from '@/models'
-import { adminService } from '@/services/adminService'
+import { settingsService } from '@/services/settingsService'
 
 /** Add a product category, or rename / retire one. Retired categories stay on existing quotes. */
 export function CategoryDialog(props: { category: Category | null; onClose: () => void; onSaved: () => void }) {
@@ -18,7 +18,7 @@ export function CategoryDialog(props: { category: Category | null; onClose: () =
     setBusy(true)
     setError(null)
     try {
-      await (category ? adminService.updateCategory(category.id, { name, active }) : adminService.createCategory({ name }))
+      await (category ? settingsService.updateCategory(category.id, { name, active }) : settingsService.createCategory({ name }))
       onSaved()
     } catch (e) {
       setError(errorText(e, 'Could not save category'))

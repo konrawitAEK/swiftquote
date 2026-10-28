@@ -20,25 +20,29 @@ import {
 } from '@mui/material'
 import { useEffect, useState } from 'react'
 import { errorText } from '@/lib/api/types'
-import type { AdminUser as User, Client, ProductCategory as Category, Team } from '@/models'
+import type { AdminUser as User, Client, Product, ProductCategory as Category, Team } from '@/models'
 import { useAuth } from '@/components/AuthProvider'
 import { ROLE_LABELS } from '@/lib/auth/roles'
-import { adminService } from '@/services/adminService'
+import { formatMoney, formatQuantity } from '@/lib/pricing/pricing'
+import { settingsService } from '@/services/settingsService'
 import { CategoryDialog } from './CategoryDialog'
 import { DeleteDialog, type DeleteTarget } from './DeleteDialog'
+import { ProductDialog } from './ProductDialog'
 import { TeamDialog } from './TeamDialog'
 import { UserDialog } from './UserDialog'
 
-const ADD_LABELS = ['Add user', 'Add team', 'Add category']
+const ADD_LABELS = ['Add user', 'Add team', 'Add category', 'Add product']
 
-/** Admin: people, team structure and product categories. */
-export function AdminConsole() {
+/** Back Office settings: people, team structure, product categories and products. */
+export function SettingsConsole() {
   const [tab, setTab] = useState(0)
   const [users, setUsers] = useState<User[] | null>(null)
   const [teams, setTeams] = useState<Team[]>([])
   const [clients, setClients] = useState<Client[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [editingCategory, setEditingCategory] = useState<Category | 'new' | null>(null)
+  const [products, setProducts] = useState<Product[]>([])
+  const [editingProduct, setEditingProduct] = useState<Product | 'new' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editingUser, setEditingUser] = useState<User | 'new' | null>(null)
   const [editingTeam, setEditingTeam] = useState<Team | 'new' | null>(null)
@@ -51,7 +55,7 @@ export function AdminConsole() {
 
   useEffect(() => {
     let cancelled = false
-    adminService
+    settingsService
       .loadAll()
       .then((data) => {
         if (cancelled) return
@@ -59,6 +63,7 @@ export function AdminConsole() {
         setTeams(data.teams)
         setClients(data.clients)
         setCategories(data.categories)
+        setProducts(data.products)
       })
       .catch((e: unknown) => !cancelled && setError(errorText(e, 'Could not load')))
     return () => {
@@ -66,18 +71,36 @@ export function AdminConsole() {
     }
   }, [version])
 
+  /** Retire or reactivate in place; the API takes the whole product on update. */
+  const toggleActive = async (p: Product) => {
+    setError(null)
+    try {
+      await settingsService.updateProduct(p.id, {
+        name: p.name,
+        categoryId: p.category.id,
+        unitPrice: p.unitPrice,
+        unitCost: p.unitCost,
+        stock: p.stock,
+        active: !p.active,
+      })
+      reload()
+    } catch (e) {
+      setError(errorText(e, `Could not ${p.active ? 'retire' : 'reactivate'} ${p.name}`))
+    }
+  }
+
   const activeWOs = (users ?? []).filter((u) => u.role === 'wo' && u.active)
 
   return (
     <Stack spacing={3}>
       <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
         <Typography variant="h4" component="h1" sx={{ fontWeight: 700 }}>
-          Users & teams
+          Settings
         </Typography>
         <Button
           variant="contained"
           startIcon={<AddIcon />}
-          onClick={() => [setEditingUser, setEditingTeam, setEditingCategory][tab]('new')}
+          onClick={() => [setEditingUser, setEditingTeam, setEditingCategory, setEditingProduct][tab]('new')}
         >
           {ADD_LABELS[tab]}
         </Button>
@@ -90,6 +113,7 @@ export function AdminConsole() {
           <Tab label={`Users${users ? ` (${users.length})` : ''}`} />
           <Tab label={`Teams (${teams.length})`} />
           <Tab label={`Product categories (${categories.length})`} />
+          <Tab label={`Products (${products.length})`} />
         </Tabs>
         {!users && !error && <LinearProgress />}
         {users && tab === 0 && (
@@ -221,7 +245,65 @@ export function AdminConsole() {
               </TableBody>
             </Table>
             <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
-              RMs pick a category for every quote line; the WOC dashboard can break sales down by category.
+              Every product belongs to a category; the WOC dashboard can break sales down by category.
+            </Typography>
+          </TableContainer>
+        )}
+        {users && tab === 3 && (
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Product</TableCell>
+                  <TableCell>Category</TableCell>
+                  <TableCell align="right">Selling price</TableCell>
+                  <TableCell align="right">Cost</TableCell>
+                  <TableCell align="right">Stock</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell />
+                </TableRow>
+              </TableHead>
+              <TableBody sx={{ '& td': { fontVariantNumeric: 'tabular-nums' } }}>
+                {products.map((p) => (
+                  <TableRow key={p.id} sx={{ opacity: p.active ? 1 : 0.55 }}>
+                    <TableCell sx={{ fontWeight: 500 }}>{p.name}</TableCell>
+                    <TableCell>{p.category.name}</TableCell>
+                    <TableCell align="right">{formatMoney(p.unitPrice)}</TableCell>
+                    <TableCell align="right">{formatMoney(p.unitCost)}</TableCell>
+                    <TableCell align="right">
+                      {p.stock === null ? (
+                        <Typography component="span" variant="body2" color="text.secondary">
+                          not tracked
+                        </Typography>
+                      ) : (
+                        formatQuantity(p.stock)
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Chip size="small" label={p.active ? 'Active' : 'Retired'} color={p.active ? 'success' : 'default'} variant="outlined" />
+                    </TableCell>
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                      <Button size="small" onClick={() => setEditingProduct(p)}>
+                        Edit
+                      </Button>
+                      <Button size="small" onClick={() => void toggleActive(p)}>
+                        {p.active ? 'Retire' : 'Reactivate'}
+                      </Button>
+                      <Button
+                        size="small"
+                        color="error"
+                        aria-label={`Delete ${p.name}`}
+                        onClick={() => setDeleting({ kind: 'product', id: p.id, name: p.name })}
+                      >
+                        Delete
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+              RMs build quote lines from active products. Cost is visible to staff but never to customers.
             </Typography>
           </TableContainer>
         )}
@@ -243,6 +325,17 @@ export function AdminConsole() {
           onClose={() => setEditingCategory(null)}
           onSaved={() => {
             setEditingCategory(null)
+            reload()
+          }}
+        />
+      )}
+      {editingProduct && (
+        <ProductDialog
+          product={editingProduct === 'new' ? null : editingProduct}
+          categories={categories}
+          onClose={() => setEditingProduct(null)}
+          onSaved={() => {
+            setEditingProduct(null)
             reload()
           }}
         />

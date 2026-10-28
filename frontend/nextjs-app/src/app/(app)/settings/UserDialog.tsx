@@ -19,7 +19,7 @@ import { errorText } from '@/lib/api/types'
 import type { AdminUser as User, Client, Role, Team } from '@/models'
 import { useAuth } from '@/components/AuthProvider'
 import { ROLE_LABELS } from '@/lib/auth/roles'
-import { adminService } from '@/services/adminService'
+import { settingsService } from '@/services/settingsService'
 
 const ROLES = Object.keys(ROLE_LABELS) as Role[]
 
@@ -46,8 +46,8 @@ export function UserDialog(props: { user: User | null; teams: Team[]; clients: C
     }
     try {
       await (user
-        ? adminService.updateUser(user.id, { name, role, active, ...placement, password: password || null })
-        : adminService.createUser({ email, name, password, role, ...placement }))
+        ? settingsService.updateUser(user.id, { name, role, active, ...placement, password: password || null })
+        : settingsService.createUser({ email, name, password, role, ...placement }))
       onSaved()
     } catch (e) {
       setError(errorText(e, 'Could not save user'))

@@ -1,26 +1,47 @@
 import { http } from '@/lib/api/http'
-import type { AdminUser, Client, CreateCategoryRequest, CreateUserRequest, ProductCategory, Team, TeamRequest, UpdateCategoryRequest, UpdateUserRequest } from '@/models'
+import type {
+  AdminUser,
+  Client,
+  CreateCategoryRequest,
+  CreateProductRequest,
+  CreateUserRequest,
+  Product,
+  ProductCategory,
+  Team,
+  TeamRequest,
+  UpdateCategoryRequest,
+  UpdateProductRequest,
+  UpdateUserRequest,
+} from '@/models'
 
-export type AdminData = { users: AdminUser[]; teams: Team[]; clients: Client[]; categories: ProductCategory[] }
-export type DeleteKind = 'user' | 'team' | 'category'
+export type SettingsData = { users: AdminUser[]; teams: Team[]; clients: Client[]; categories: ProductCategory[]; products: Product[] }
+export type DeleteKind = 'user' | 'team' | 'category' | 'product'
 
-const DELETE_PATHS: Record<DeleteKind, string> = { user: 'users', team: 'teams', category: 'categories' }
+const DELETE_PATHS: Record<DeleteKind, string> = { user: 'users', team: 'teams', category: 'categories', product: 'products' }
 
 async function get<T>(url: string): Promise<T> {
   const { data } = await http.get<T>(url)
   return data
 }
 
-export const adminService = {
-  /** Everything the console shows; on failure, rejects with the first failing call's error (users, teams, clients, categories). */
-  async loadAll(): Promise<AdminData> {
+/** Back Office settings (role admin). */
+export const settingsService = {
+  /** Everything the console shows; on failure, rejects with the first failing call's error (users, teams, clients, categories, products). */
+  async loadAll(): Promise<SettingsData> {
     // Started together; awaited in order so the first failing call's error wins.
     const users = get<AdminUser[]>('/admin/users')
     const teams = get<Team[]>('/admin/teams')
     const clients = get<Client[]>('/clients')
     const categories = get<ProductCategory[]>('/categories')
-    for (const p of [users, teams, clients, categories]) p.catch(() => {}) // no unhandled rejections
-    return { users: await users, teams: await teams, clients: await clients, categories: await categories }
+    const products = get<Product[]>('/products')
+    for (const p of [users, teams, clients, categories, products]) p.catch(() => {}) // no unhandled rejections
+    return {
+      users: await users,
+      teams: await teams,
+      clients: await clients,
+      categories: await categories,
+      products: await products,
+    }
   },
 
   async createUser(body: CreateUserRequest): Promise<AdminUser> {
@@ -47,6 +68,16 @@ export const adminService = {
   },
   async updateCategory(id: string, body: UpdateCategoryRequest): Promise<ProductCategory> {
     const { data } = await http.put<ProductCategory>(`/admin/categories/${encodeURIComponent(id)}`, body)
+    return data
+  },
+
+  async createProduct(body: CreateProductRequest): Promise<Product> {
+    const { data } = await http.post<Product>('/admin/products', body)
+    return data
+  },
+  /** Full replace; also how a product is retired or reactivated (active). */
+  async updateProduct(id: string, body: UpdateProductRequest): Promise<Product> {
+    const { data } = await http.put<Product>(`/admin/products/${encodeURIComponent(id)}`, body)
     return data
   },
 

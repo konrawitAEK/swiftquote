@@ -25,12 +25,13 @@ import {
 } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
 import NextLink from 'next/link'
+import { DownloadPdfButton } from '@/components/DownloadPdfButton'
 import { StatusChip } from '@/components/StatusChip'
 import { TotalRow } from '@/components/TotalRow'
 import { errorText } from '@/lib/api/types'
 import type { QuoteDetail as Quote, Role } from '@/models'
-import { SENT_STATUSES } from '@/lib/auth/roles'
-import { formatMoney } from '@/lib/pricing/pricing'
+import { PDF_STATUSES, SENT_STATUSES } from '@/lib/auth/roles'
+import { formatDiscount, formatMoney, formatOptionalMoney } from '@/lib/pricing/pricing'
 import { AcceptCard } from './AcceptCard'
 import { QuoteHistory } from './QuoteHistory'
 import { quoteDetailService } from '@/services/quoteDetailService'
@@ -113,6 +114,9 @@ export function QuoteDetail({ id, role }: { id: string; role: Role }) {
 
   const can = availableActions(role, quote)
   const showLink = role !== 'customer' && SENT_STATUSES.includes(quote.status)
+  // The API omits cost fields for customers; render them only when present (null = unknown).
+  const showCost = role !== 'customer' && quote.items.some((it) => it.unitCost !== undefined)
+  const showCostTotals = role !== 'customer' && quote.costTotal !== undefined
 
   return (
     <Stack spacing={3}>
@@ -166,6 +170,12 @@ export function QuoteDetail({ id, role }: { id: string; role: Role }) {
               Decline
             </Button>
           )}
+          {PDF_STATUSES.includes(quote.status) && (
+            <DownloadPdfButton
+              download={() => quoteDetailService.downloadPdf(id, quote.quoteNumber)}
+              onError={(e) => setActionError(errorText(e, 'Could not download the PDF'))}
+            />
+          )}
         </Stack>
       </Stack>
 
@@ -205,6 +215,13 @@ export function QuoteDetail({ id, role }: { id: string; role: Role }) {
                 <TableCell align="right">Unit price</TableCell>
                 <TableCell align="right">Discount</TableCell>
                 <TableCell align="right">Amount (excl. VAT)</TableCell>
+                {showCost && (
+                  <>
+                    <TableCell align="right">Unit cost</TableCell>
+                    <TableCell align="right">Cost</TableCell>
+                    <TableCell align="right">Profit</TableCell>
+                  </>
+                )}
               </TableRow>
             </TableHead>
             <TableBody sx={{ '& td': { fontVariantNumeric: 'tabular-nums' } }}>
@@ -223,8 +240,20 @@ export function QuoteDetail({ id, role }: { id: string; role: Role }) {
                   </TableCell>
                   <TableCell align="right">{it.quantity}</TableCell>
                   <TableCell align="right">{formatMoney(it.unitPrice)}</TableCell>
-                  <TableCell align="right">{Number(it.discountPercent) ? `${it.discountPercent}%` : '—'}</TableCell>
+                  <TableCell align="right">{formatDiscount(it.discountType, it.discountValue)}</TableCell>
                   <TableCell align="right">{formatMoney(it.lineTotal)}</TableCell>
+                  {showCost && (
+                    <>
+                      <TableCell align="right">{formatOptionalMoney(it.unitCost)}</TableCell>
+                      <TableCell align="right">{formatOptionalMoney(it.costTotal)}</TableCell>
+                      <TableCell
+                        align="right"
+                        sx={{ color: it.profit != null && it.profit < 0 ? 'error.main' : undefined }}
+                      >
+                        {formatOptionalMoney(it.profit)}
+                      </TableCell>
+                    </>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -238,6 +267,13 @@ export function QuoteDetail({ id, role }: { id: string; role: Role }) {
             <TotalRow label="VAT" value={formatMoney(quote.taxAmount)} />
             <Divider />
             <TotalRow label="Grand total" value={formatMoney(quote.grandTotal)} strong />
+            {showCostTotals && (
+              <>
+                <Divider />
+                <TotalRow label="Cost" value={formatOptionalMoney(quote.costTotal)} />
+                <TotalRow label="Profit (before VAT)" value={formatOptionalMoney(quote.profit)} />
+              </>
+            )}
           </Stack>
         </CardContent>
       </Card>

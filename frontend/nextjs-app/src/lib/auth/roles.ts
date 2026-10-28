@@ -1,7 +1,7 @@
 import type { QuoteStatus, Role } from '@/models'
 
 export const ROLE_LABELS: Record<Role, string> = {
-  admin: 'Admin',
+  admin: 'Back Office',
   woc: 'WOC',
   wo: 'WO (Approver)',
   rm: 'RM',
@@ -12,7 +12,7 @@ export const ROLE_LABELS: Record<Role, string> = {
 export function homePath(role: Role | undefined): string {
   switch (role) {
     case 'admin':
-      return '/admin'
+      return '/settings'
     case 'woc':
       return '/dashboard'
     default:
@@ -30,6 +30,9 @@ export const STATUS_LABELS: Record<QuoteStatus, string> = {
   rejected: 'Rejected',
   expired: 'Expired',
 }
+
+/** Statuses that can be downloaded as a PDF. */
+export const PDF_STATUSES: QuoteStatus[] = ['approved', 'sent', 'viewed', 'accepted', 'rejected']
 
 /** Statuses from which the share link works. */
 export const SENT_STATUSES: QuoteStatus[] = ['sent', 'viewed', 'accepted', 'rejected']
