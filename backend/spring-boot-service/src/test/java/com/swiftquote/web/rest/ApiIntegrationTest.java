@@ -219,6 +219,11 @@ class ApiIntegrationTest {
 		return m(v).get("count") + "/" + text(m(v).get("amount"));
 	}
 
+	/** "cost/profit" of a dashboard measure. */
+	static String margin(Object v) {
+		return text(m(v).get("cost")) + "/" + text(m(v).get("profit"));
+	}
+
 	@Test
 	void workflowFromDraftToAccepted() {
 		String rm = as(RM1);
@@ -513,6 +518,10 @@ class ApiIntegrationTest {
 		assertThat(measure(s.get("won"))).isEqualTo("1/194.21");
 		assertThat(measure(s.get("pending"))).isEqualTo("1/194.21");
 		assertThat(measure(s.get("inApproval"))).isEqualTo("1/194.21");
+		// Cost and profit are before VAT: Consulting 2 x 900 against 180.00, CRM licence 1 x 1800 against 1.50.
+		assertThat(res.raw()).contains("\"won\":{\"count\":1,\"amount\":194.21,\"cost\":3600.00,\"profit\":-3418.50}");
+		assertThat(margin(s.get("pending"))).isEqualTo("3600.00/-3418.50");
+		assertThat(margin(s.get("inApproval"))).isEqualTo("3600.00/-3418.50");
 		assertThat(s.get("sentCount")).isEqualTo(3);
 		assertThat(res.raw()).contains("\"conversionRate\":0.3333");
 		List<?> byStatus = (List<?>) s.get("byStatus");
@@ -526,6 +535,9 @@ class ApiIntegrationTest {
 		assertThat(measure(at(months, 0).get("won"))).isEqualTo("1/194.21");
 		assertThat(measure(at(months, 1).get("pending"))).isEqualTo("1/194.21");
 		assertThat(measure(at(months, 1).get("won"))).isEqualTo("0/0.00");
+		assertThat(margin(at(months, 1).get("won"))).isEqualTo("0.00/0.00");
+		assertThat(margin(at(months, 0).get("won"))).isEqualTo("3600.00/-3418.50");
+		assertThat(margin(at(months, 1).get("pending"))).isEqualTo("3600.00/-3418.50");
 
 		List<?> rms = (List<?>) s.get("byRm");
 		assertThat(rms).hasSize(2);
@@ -533,13 +545,28 @@ class ApiIntegrationTest {
 		assertThat(m(top.get("user"))).containsEntry("name", "Nok Rattana");
 		assertThat(top).containsEntry("team", "Team Alpha").containsEntry("quoteCount", 4).containsEntry("sentCount", 3);
 		assertThat(measure(top.get("pending"))).isEqualTo("1/194.21");
+		assertThat(margin(top.get("won"))).isEqualTo("3600.00/-3418.50");
+		assertThat(margin(at(rms, 1).get("won"))).isEqualTo("0.00/0.00");
 		assertThat(at(s.get("byTeam"), 0)).containsEntry("name", "Team Alpha");
+		assertThat(margin(at(s.get("byTeam"), 0).get("pending"))).isEqualTo("3600.00/-3418.50");
 
 		List<?> cats = (List<?>) s.get("byCategory");
 		assertThat(cats).hasSize(2);
 		assertThat(m(at(cats, 0).get("category"))).containsEntry("name", "Services");
 		assertThat(measure(at(cats, 0).get("won"))).isEqualTo("1/192.60");
 		assertThat(measure(at(cats, 1).get("pending"))).isEqualTo("1/1.61");
+		// A category's cost and profit come from its own lines.
+		assertThat(margin(at(cats, 0).get("won"))).isEqualTo("1800.00/-1620.00");
+		assertThat(margin(at(cats, 1).get("pending"))).isEqualTo("1800.00/-1798.50");
+
+		// Lines without a cost (saved before products) are left out of cost and profit, not the counts.
+		this.jdbc.sql("UPDATE quote_items SET unit_cost = NULL WHERE position = 1").update();
+		s = expect(200, null, "GET", "/api/v1/dashboard/summary", woc, null).map();
+		assertThat(measure(s.get("won"))).isEqualTo("1/194.21");
+		assertThat(margin(s.get("won"))).isEqualTo("1800.00/-1620.00");
+		cats = (List<?>) s.get("byCategory");
+		assertThat(measure(at(cats, 1).get("pending"))).isEqualTo("1/1.61");
+		assertThat(margin(at(cats, 1).get("pending"))).isEqualTo("0.00/0.00");
 
 		String future = LocalDate.now(ZoneOffset.UTC).plusYears(1).toString();
 		res = expect(200, null, "GET", "/api/v1/dashboard/summary?from=" + future, woc, null);

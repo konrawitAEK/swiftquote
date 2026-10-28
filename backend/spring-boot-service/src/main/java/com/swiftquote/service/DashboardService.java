@@ -54,21 +54,19 @@ public class DashboardService {
 		List<StatusRow> counts = this.repo.countByStatus(a.tenantId(), r);
 		List<StatusRow> byStatus = new ArrayList<>();
 		Measure won = Measure.ZERO;
-		long inApprovalCount = 0;
-		BigDecimal inApprovalAmount = BigDecimal.ZERO;
+		Measure inApproval = Measure.ZERO;
 		long sentCount = 0;
 		for (String st : Statuses.ALL) {
 			StatusRow row = counts.stream()
 				.filter((c) -> c.status().equals(st))
 				.findFirst()
-				.orElse(new StatusRow(st, 0, BigDecimal.ZERO));
+				.orElse(new StatusRow(st, 0, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
 			byStatus.add(row);
 			if (st.equals(Statuses.ACCEPTED)) {
-				won = new Measure(row.count(), row.amount());
+				won = row.measure();
 			}
 			if (IN_APPROVAL_STATUSES.contains(st)) {
-				inApprovalCount += row.count();
-				inApprovalAmount = inApprovalAmount.add(row.amount());
+				inApproval = inApproval.plus(row.measure());
 			}
 			if (SENT_STATUSES.contains(st)) {
 				sentCount += row.count();
@@ -80,7 +78,7 @@ public class DashboardService {
 					RoundingMode.HALF_UP);
 		}
 		return new Summary(r, won, this.repo.pendingTotal(a.tenantId(), r),
-				new Measure(inApprovalCount, inApprovalAmount), sentCount, conversionRate, byStatus,
+				inApproval, sentCount, conversionRate, byStatus,
 				this.repo.byMonth(a.tenantId(), r), this.repo.byRm(a.tenantId(), r), this.repo.byTeam(a.tenantId(), r),
 				this.repo.byCategory(a.tenantId(), r));
 	}

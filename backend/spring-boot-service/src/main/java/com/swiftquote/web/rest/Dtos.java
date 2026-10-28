@@ -189,10 +189,10 @@ final class Dtos {
 
 	}
 
-	record MeasureView(long count, BigDecimal amount) {
+	record MeasureView(long count, BigDecimal amount, BigDecimal cost, BigDecimal profit) {
 
 		static MeasureView of(DashboardRepository.Measure m) {
-			return new MeasureView(m.count(), money(m.amount()));
+			return new MeasureView(m.count(), money(m.amount()), money(m.cost()), money(m.profit()));
 		}
 
 	}
