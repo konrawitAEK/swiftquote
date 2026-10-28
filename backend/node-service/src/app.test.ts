@@ -64,7 +64,7 @@ const stockBody = (quoteNumber: string, laptops: number, mice = 1): Json => ({
 })
 
 const actions = (q: Json) => (q.history as Json[]).map((e) => e.action)
-const measure = (m: Json) => `${m.count}/${m.amount}`
+const measure = (m: Json) => `${m.count}/${m.amount}/${m.cost}/${m.profit}`
 const sign = { signerName: 'Alice Acme', signatureDataUrl: 'data:image/png;base64,AAAA' }
 
 describe.skipIf(!DB_URL)('API (Postgres)', () => {
@@ -448,11 +448,15 @@ describe.skipIf(!DB_URL)('API (Postgres)', () => {
   it('summarises the dashboard', async () => {
     const customer = await as(ACME_BUYER)
     // Each quote is Consulting (Services) 192.60 + Setup fee (Software) 1.61 = 194.21 incl. VAT.
+    // Cost before VAT: Consulting 2 x 900 = 1800 (profit 180 - 1800 = -1620), CRM 1800 (profit 1.50 - 1800 = -1798.50),
+    // so a quote costs 3600.00 with profit -3418.50.
     const [a] = await sent('Q-A')
     await expectStatus(200, '', 'POST', `/api/v1/quotes/${a}/accept`, customer, sign)
     const [b] = await sent('Q-B')
     await expectStatus(200, '', 'POST', `/api/v1/quotes/${b}/reject`, customer)
-    await sent('Q-C') // pending: with the customer
+    const [c] = await sent('Q-C') // pending: with the customer
+    // Q-C's Software line predates costs: it is left out of cost and profit (cost 1800.00, profit -1620.00).
+    await pool.query(`UPDATE quote_items SET unit_cost = NULL WHERE quote_id = $1 AND category_id = $2`, [c, CAT_SOFTWARE])
     const d = await create(RM1, 'Q-D')
     await expectStatus(200, '', 'POST', `/api/v1/quotes/${d}/submit`, await as(RM1)) // in approval
     await create('rm3@swiftquote.dev', 'Q-E') // draft, Team Beta
@@ -461,13 +465,13 @@ describe.skipIf(!DB_URL)('API (Postgres)', () => {
     const res = await call('GET', '/api/v1/dashboard/summary', woc)
     expect(res.status, res.raw).toBe(200)
     expect(res.raw).toContain('"conversionRate":0.3333')
-    expect(res.raw).toContain('"won":{"count":1,"amount":194.21}')
+    expect(res.raw).toContain('"won":{"count":1,"amount":194.21,"cost":3600.00,"profit":-3418.50}')
     const s = res.json
     expect(s.from).toBeNull()
     expect(s.to).toBeNull()
-    expect(measure(s.won)).toBe('1/194.21')
-    expect(measure(s.pending)).toBe('1/194.21')
-    expect(measure(s.inApproval)).toBe('1/194.21')
+    expect(measure(s.won)).toBe('1/194.21/3600/-3418.5')
+    expect(measure(s.pending)).toBe('1/194.21/1800/-1620')
+    expect(measure(s.inApproval)).toBe('1/194.21/3600/-3418.5')
     expect(s.sentCount).toBe(3)
     expect(s.byStatus.map((r: Json) => r.status)).toEqual(
       ['draft', 'pending_approval', 'approved', 'sent', 'viewed', 'accepted', 'rejected', 'expired'])
@@ -475,24 +479,31 @@ describe.skipIf(!DB_URL)('API (Postgres)', () => {
 
     // Won is grouped by signing month (this month), pending by expiry month (next month).
     expect(s.byMonth).toHaveLength(2)
-    expect(measure(s.byMonth[0].won)).toBe('1/194.21')
-    expect(measure(s.byMonth[1].pending)).toBe('1/194.21')
+    expect(measure(s.byMonth[0].won)).toBe('1/194.21/3600/-3418.5')
+    expect(measure(s.byMonth[0].pending)).toBe('0/0/0/0')
+    expect(measure(s.byMonth[1].pending)).toBe('1/194.21/1800/-1620')
 
     expect(s.byRm).toHaveLength(2)
     expect(s.byRm[0]).toMatchObject({ user: { id: RM1_USER, name: 'Nok Rattana' }, team: 'Team Alpha', quoteCount: 4, sentCount: 3 })
-    expect(measure(s.byRm[0].pending)).toBe('1/194.21')
+    expect(measure(s.byRm[0].won)).toBe('1/194.21/3600/-3418.5')
+    expect(measure(s.byRm[0].pending)).toBe('1/194.21/1800/-1620')
     expect(s.byTeam[0].name).toBe('Team Alpha')
+    expect(measure(s.byTeam[0].pending)).toBe('1/194.21/1800/-1620')
 
     expect(s.byCategory).toHaveLength(2)
     expect(s.byCategory[0].category.name).toBe('Services')
-    expect(res.raw).toContain('"won":{"count":1,"amount":192.60}')
-    expect(measure(s.byCategory[1].pending)).toBe('1/1.61')
+    expect(res.raw).toContain('"won":{"count":1,"amount":192.60,"cost":1800.00,"profit":-1620.00}')
+    expect(measure(s.byCategory[0].pending)).toBe('1/192.6/1800/-1620')
+    expect(measure(s.byCategory[1].won)).toBe('1/1.61/1800/-1798.5')
+    // A category whose lines have no cost reports zero, formatted like amount.
+    expect(res.raw).toContain('"pending":{"count":1,"amount":1.61,"cost":0.00,"profit":0.00}')
 
     const future = new Date()
     future.setUTCFullYear(future.getUTCFullYear() + 1)
     const empty = await call('GET', `/api/v1/dashboard/summary?from=${future.toISOString().slice(0, 10)}`, woc)
     expect(empty.json.sentCount).toBe(0)
     expect(empty.raw).toContain('"conversionRate":0.0000')
+    expect(empty.raw).toContain('"won":{"count":0,"amount":0.00,"cost":0.00,"profit":0.00}')
     expect(empty.json.from).toBe(future.toISOString().slice(0, 10))
     const reversed = await expectStatus(400, 'VALIDATION_ERROR', 'GET', '/api/v1/dashboard/summary?from=2026-12-01&to=2026-01-01', woc)
     expect(reversed.details).toEqual(['from must not be after to'])

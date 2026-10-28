@@ -152,12 +152,18 @@ export interface Range {
 export interface Measure {
   count: number
   amount: Money
+  /** Sum of round(quantity * unit_cost, 2) over the lines that have a cost; before VAT. */
+  cost: Money
+  /** Sum of line_total - line cost over the same lines; before VAT. */
+  profit: Money
 }
 
 export interface StatusRow {
   status: QuoteStatus
   count: number
   amount: Money
+  cost: Money
+  profit: Money
 }
 
 export interface MonthRow {
@@ -256,6 +262,17 @@ const IS_PENDING = `(q.status IN ('sent', 'viewed') AND q.expiry_date >= (now() 
 const IS_SENT = `q.status IN ('sent', 'viewed', 'accepted', 'rejected')`
 // Line amount incl. VAT, rounded per line exactly like pricing, so categories add up to grand totals.
 const LINE_GROSS = `(i.line_total + round(i.line_total * i.tax_percent / 100, 2))`
+// A line's cost (NULL for lines without one, so sums leave them out) and its profit before VAT.
+const LINE_COST = `round(i.quantity * i.unit_cost, 2)`
+const LINE_PROFIT = `(i.line_total - ${LINE_COST})`
+// Per-quote cost and profit (qc.cost, qc.profit; NULL when no line has a cost), joined onto quotes q.
+const QUOTE_COST_JOIN = `
+  LEFT JOIN (
+    SELECT i.quote_id, sum(${LINE_COST}) AS cost, sum(${LINE_PROFIT}) AS profit
+    FROM quote_items i
+    WHERE i.unit_cost IS NOT NULL
+    GROUP BY i.quote_id
+  ) qc ON qc.quote_id = q.id`
 
 const PRODUCT_SELECT = `
   SELECT p.id, p.name, p.unit_price, p.unit_cost, p.stock, p.active, c.id AS category_id, c.name AS category_name
@@ -284,7 +301,12 @@ export interface ProductInput {
   active: boolean
 }
 
-const measure = (count: unknown, amount: unknown): Measure => ({ count: Number(count), amount: new Money(String(amount)) })
+const measure = (count: unknown, amount: unknown, cost: unknown, profit: unknown): Measure => ({
+  count: Number(count),
+  amount: new Money(String(amount)),
+  cost: new Money(String(cost ?? 0)),
+  profit: new Money(String(profit ?? 0)),
+})
 
 export class Repository {
   constructor(private readonly pool: pg.Pool) {}
@@ -846,43 +868,54 @@ export class Repository {
 
   async countByStatus(orgId: string, r: Range): Promise<StatusRow[]> {
     const { rows } = await this.pool.query(
-      `SELECT q.status, count(*) AS n, COALESCE(sum(q.grand_total), 0) AS amount
-       FROM quotes q
+      `SELECT q.status, count(*) AS n, COALESCE(sum(q.grand_total), 0) AS amount,
+         COALESCE(sum(qc.cost), 0) AS cost, COALESCE(sum(qc.profit), 0) AS profit
+       FROM quotes q ${QUOTE_COST_JOIN}
        WHERE q.organization_id = $1 AND ${IN_RANGE}
        GROUP BY q.status`,
       [orgId, r.from, r.to],
     )
-    return rows.map((x) => ({ status: x.status, count: Number(x.n), amount: new Money(x.amount) }))
+    return rows.map((x) => ({ status: x.status, ...measure(x.n, x.amount, x.cost, x.profit) }))
   }
 
   async pendingTotal(orgId: string, r: Range): Promise<Measure> {
     const { rows } = await this.pool.query(
-      `SELECT count(*) AS n, COALESCE(sum(q.grand_total), 0) AS amount
-       FROM quotes q
+      `SELECT count(*) AS n, COALESCE(sum(q.grand_total), 0) AS amount,
+         COALESCE(sum(qc.cost), 0) AS cost, COALESCE(sum(qc.profit), 0) AS profit
+       FROM quotes q ${QUOTE_COST_JOIN}
        WHERE q.organization_id = $1 AND ${IS_PENDING} AND ${IN_RANGE}`,
       [orgId, r.from, r.to],
     )
-    return measure(rows[0]!.n, rows[0]!.amount)
+    const x = rows[0]!
+    return measure(x.n, x.amount, x.cost, x.profit)
   }
 
   async byMonth(orgId: string, r: Range): Promise<MonthRow[]> {
     const { rows } = await this.pool.query(
-      `SELECT month, sum(won_count) AS wc, sum(won_amount) AS wa, sum(pending_count) AS pc, sum(pending_amount) AS pa
+      `SELECT month, sum(won_count) AS wc, sum(won_amount) AS wa,
+         COALESCE(sum(won_cost), 0) AS wcost, COALESCE(sum(won_profit), 0) AS wprofit,
+         sum(pending_count) AS pc, sum(pending_amount) AS pa,
+         COALESCE(sum(pending_cost), 0) AS pcost, COALESCE(sum(pending_profit), 0) AS pprofit
        FROM (
          SELECT to_char(q.signed_at AT TIME ZONE 'UTC', 'YYYY-MM') AS month,
-           1 AS won_count, q.grand_total AS won_amount, 0 AS pending_count, 0 AS pending_amount
-         FROM quotes q
+           1 AS won_count, q.grand_total AS won_amount, qc.cost AS won_cost, qc.profit AS won_profit,
+           0 AS pending_count, 0 AS pending_amount, NULL::numeric AS pending_cost, NULL::numeric AS pending_profit
+         FROM quotes q ${QUOTE_COST_JOIN}
          WHERE q.organization_id = $1 AND ${IS_WON} AND q.signed_at IS NOT NULL AND ${IN_RANGE}
          UNION ALL
-         SELECT to_char(q.expiry_date, 'YYYY-MM'), 0, 0, 1, q.grand_total
-         FROM quotes q
+         SELECT to_char(q.expiry_date, 'YYYY-MM'), 0, 0, NULL, NULL, 1, q.grand_total, qc.cost, qc.profit
+         FROM quotes q ${QUOTE_COST_JOIN}
          WHERE q.organization_id = $1 AND ${IS_PENDING} AND ${IN_RANGE}
        ) m
        GROUP BY month
        ORDER BY month`,
       [orgId, r.from, r.to],
     )
-    return rows.map((x) => ({ month: x.month, won: measure(x.wc, x.wa), pending: measure(x.pc, x.pa) }))
+    return rows.map((x) => ({
+      month: x.month,
+      won: measure(x.wc, x.wa, x.wcost, x.wprofit),
+      pending: measure(x.pc, x.pa, x.pcost, x.pprofit),
+    }))
   }
 
   async byRm(orgId: string, r: Range): Promise<RmRow[]> {
@@ -892,9 +925,13 @@ export class Repository {
          count(*) FILTER (WHERE ${IS_SENT}) AS sent,
          count(*) FILTER (WHERE ${IS_WON}) AS wc,
          COALESCE(sum(q.grand_total) FILTER (WHERE ${IS_WON}), 0) AS won_amount,
+         COALESCE(sum(qc.cost) FILTER (WHERE ${IS_WON}), 0) AS wcost,
+         COALESCE(sum(qc.profit) FILTER (WHERE ${IS_WON}), 0) AS wprofit,
          count(*) FILTER (WHERE ${IS_PENDING}) AS pc,
-         COALESCE(sum(q.grand_total) FILTER (WHERE ${IS_PENDING}), 0) AS pa
-       FROM quotes q
+         COALESCE(sum(q.grand_total) FILTER (WHERE ${IS_PENDING}), 0) AS pa,
+         COALESCE(sum(qc.cost) FILTER (WHERE ${IS_PENDING}), 0) AS pcost,
+         COALESCE(sum(qc.profit) FILTER (WHERE ${IS_PENDING}), 0) AS pprofit
+       FROM quotes q ${QUOTE_COST_JOIN}
        JOIN users u ON u.id = q.created_by
        LEFT JOIN organization_members m ON m.user_id = u.id AND m.organization_id = q.organization_id
        LEFT JOIN teams t ON t.id = m.team_id
@@ -908,8 +945,8 @@ export class Repository {
       team: x.team,
       quoteCount: Number(x.quotes),
       sentCount: Number(x.sent),
-      won: measure(x.wc, x.won_amount),
-      pending: measure(x.pc, x.pa),
+      won: measure(x.wc, x.won_amount, x.wcost, x.wprofit),
+      pending: measure(x.pc, x.pa, x.pcost, x.pprofit),
     }))
   }
 
@@ -918,17 +955,27 @@ export class Repository {
       `SELECT t.id, t.name,
          count(q.id) FILTER (WHERE ${IS_WON}) AS wc,
          COALESCE(sum(q.grand_total) FILTER (WHERE ${IS_WON}), 0) AS won_amount,
+         COALESCE(sum(qc.cost) FILTER (WHERE ${IS_WON}), 0) AS wcost,
+         COALESCE(sum(qc.profit) FILTER (WHERE ${IS_WON}), 0) AS wprofit,
          count(q.id) FILTER (WHERE ${IS_PENDING}) AS pc,
-         COALESCE(sum(q.grand_total) FILTER (WHERE ${IS_PENDING}), 0) AS pa
+         COALESCE(sum(q.grand_total) FILTER (WHERE ${IS_PENDING}), 0) AS pa,
+         COALESCE(sum(qc.cost) FILTER (WHERE ${IS_PENDING}), 0) AS pcost,
+         COALESCE(sum(qc.profit) FILTER (WHERE ${IS_PENDING}), 0) AS pprofit
        FROM teams t
        LEFT JOIN organization_members m ON m.team_id = t.id
        LEFT JOIN quotes q ON q.created_by = m.user_id AND q.organization_id = t.organization_id AND ${IN_RANGE}
+       ${QUOTE_COST_JOIN}
        WHERE t.organization_id = $1
        GROUP BY t.id, t.name
        ORDER BY won_amount DESC, t.name, t.id`,
       [orgId, r.from, r.to],
     )
-    return rows.map((x) => ({ id: x.id, name: x.name, won: measure(x.wc, x.won_amount), pending: measure(x.pc, x.pa) }))
+    return rows.map((x) => ({
+      id: x.id,
+      name: x.name,
+      won: measure(x.wc, x.won_amount, x.wcost, x.wprofit),
+      pending: measure(x.pc, x.pa, x.pcost, x.pprofit),
+    }))
   }
 
   async byCategory(orgId: string, r: Range): Promise<CategoryRow[]> {
@@ -936,8 +983,12 @@ export class Repository {
       `SELECT c.id, c.name,
          count(*) FILTER (WHERE ${IS_WON}) AS wc,
          COALESCE(sum(${LINE_GROSS}) FILTER (WHERE ${IS_WON}), 0) AS won_amount,
+         COALESCE(sum(${LINE_COST}) FILTER (WHERE ${IS_WON}), 0) AS wcost,
+         COALESCE(sum(${LINE_PROFIT}) FILTER (WHERE ${IS_WON}), 0) AS wprofit,
          count(*) FILTER (WHERE ${IS_PENDING}) AS pc,
-         COALESCE(sum(${LINE_GROSS}) FILTER (WHERE ${IS_PENDING}), 0) AS pa
+         COALESCE(sum(${LINE_GROSS}) FILTER (WHERE ${IS_PENDING}), 0) AS pa,
+         COALESCE(sum(${LINE_COST}) FILTER (WHERE ${IS_PENDING}), 0) AS pcost,
+         COALESCE(sum(${LINE_PROFIT}) FILTER (WHERE ${IS_PENDING}), 0) AS pprofit
        FROM quote_items i
        JOIN quotes q ON q.id = i.quote_id
        LEFT JOIN product_categories c ON c.id = i.category_id
@@ -948,8 +999,8 @@ export class Repository {
     )
     return rows.map((x) => ({
       category: ref(x.id, x.name),
-      won: measure(x.wc, x.won_amount),
-      pending: measure(x.pc, x.pa),
+      won: measure(x.wc, x.won_amount, x.wcost, x.wprofit),
+      pending: measure(x.pc, x.pa, x.pcost, x.pprofit),
     }))
   }
 }
