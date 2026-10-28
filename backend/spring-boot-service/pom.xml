@@ -30,6 +30,20 @@
 			<artifactId>spring-boot-starter-webmvc</artifactId>
 		</dependency>
 
+		<!-- Quote PDFs (LGPL 2.1 / MPL 2.0). Thai is shaped through the JDK's text layout (LayoutProcessor). -->
+		<dependency>
+			<groupId>com.github.librepdf</groupId>
+			<artifactId>openpdf</artifactId>
+			<version>3.0.5</version>
+			<exclusions>
+				<!-- Only needed to read Brotli-compressed PDFs; we only write. -->
+				<exclusion>
+					<groupId>com.aayushatharva.brotli4j</groupId>
+					<artifactId>brotli4j</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>

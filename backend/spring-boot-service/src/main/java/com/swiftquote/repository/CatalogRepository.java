@@ -26,7 +26,7 @@ public class CatalogRepository {
 
 	}
 
-	/** A delete hit a foreign key: a quote line started using the category after the service checked. */
+	/** A delete hit a foreign key: a quote line or product started using the category after the service checked. */
 	public static final class InUseException extends RuntimeException {
 
 		InUseException(Throwable cause) {
@@ -95,6 +95,14 @@ public class CatalogRepository {
 	/** Whether any quote line uses the category. */
 	public boolean isUsed(UUID id) {
 		return this.jdbc.sql("SELECT EXISTS (SELECT 1 FROM quote_items WHERE category_id = :id)")
+			.param("id", id)
+			.query(Boolean.class)
+			.single();
+	}
+
+	/** Whether any product is in the category. */
+	public boolean hasProducts(UUID id) {
+		return this.jdbc.sql("SELECT EXISTS (SELECT 1 FROM products WHERE category_id = :id)")
 			.param("id", id)
 			.query(Boolean.class)
 			.single();

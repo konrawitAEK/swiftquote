@@ -1,31 +1,36 @@
 package com.swiftquote.service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
 import com.swiftquote.domain.Actor;
 import com.swiftquote.domain.ApiException;
+import com.swiftquote.domain.DiscountTypes;
 import com.swiftquote.domain.GoText;
 import com.swiftquote.domain.Quote;
+import com.swiftquote.domain.Product;
 import com.swiftquote.domain.QuoteEvent;
 import com.swiftquote.domain.QuoteItem;
 import com.swiftquote.domain.Ref;
 import com.swiftquote.domain.Roles;
 import com.swiftquote.domain.Statuses;
 import com.swiftquote.repository.AuthRepository;
-import com.swiftquote.repository.CatalogRepository;
+import com.swiftquote.repository.ProductRepository;
 import com.swiftquote.repository.QuoteRepository;
 import com.swiftquote.repository.QuoteRepository.NewEvent;
 import com.swiftquote.repository.QuoteRepository.PublicView;
 import com.swiftquote.repository.QuoteRepository.StateConflictException;
+import com.swiftquote.repository.QuoteRepository.StockShortageException;
 import com.swiftquote.repository.QuoteRepository.Summary;
 
 /**
@@ -39,15 +44,15 @@ public class QuoteService {
 
 	private final QuoteRepository quotes;
 
-	private final CatalogRepository catalog;
+	private final ProductRepository products;
 
 	private final AuthRepository clients;
 
 	private final Clock clock;
 
-	public QuoteService(QuoteRepository quotes, CatalogRepository catalog, AuthRepository clients, Clock clock) {
+	public QuoteService(QuoteRepository quotes, ProductRepository products, AuthRepository clients, Clock clock) {
 		this.quotes = quotes;
-		this.catalog = catalog;
+		this.products = products;
 		this.clients = clients;
 		this.clock = clock;
 	}
@@ -57,9 +62,18 @@ public class QuoteService {
 			List<ItemInput> items) {
 	}
 
-	public record ItemInput(String title, UUID categoryId, String description, BigDecimal quantity,
-			BigDecimal unitPrice, BigDecimal discountPercent, BigDecimal taxPercent) {
+	/** discountType is null when absent; unitPrice null means the product's price. */
+	public record ItemInput(UUID productId, String description, BigDecimal quantity, BigDecimal unitPrice,
+			String discountType, BigDecimal discountValue, BigDecimal taxPercent) {
 	}
+
+	/** A quote to render as a PDF, with the tenant's name as the vendor. */
+	public record Document(Quote quote, String vendorName) {
+	}
+
+	/** The states a quote can be exported in. */
+	private static final List<String> EXPORTABLE = List.of(Statuses.APPROVED, Statuses.SENT, Statuses.VIEWED,
+			Statuses.ACCEPTED, Statuses.REJECTED);
 
 	private record Validated(UUID clientId, UUID dealId, String quoteNumber, LocalDate expiryDate,
 			List<QuoteItem> items, Pricing.Result totals) {
@@ -123,8 +137,8 @@ public class QuoteService {
 	}
 
 	/**
-	 * Checks a create/update payload in two passes (required fields, then values), prices the items and checks the
-	 * client exists.
+	 * Checks a create/update payload in two passes (required fields and shapes, then values), resolves each line's
+	 * product, prices the items and checks the client exists.
 	 */
 	private Validated validate(UUID orgId, CreateInput in) {
 		ApiException.Problems problems = new ApiException.Problems();
@@ -137,19 +151,19 @@ public class QuoteService {
 		List<ItemInput> inputs = (in.items() != null) ? in.items() : List.of();
 		for (int i = 0; i < inputs.size(); i++) {
 			ItemInput it = inputs.get(i);
-			if (it.categoryId() == null) {
-				problems.add("items[%d].categoryId is required".formatted(i));
+			if (it.productId() == null) {
+				problems.add("items[%d].productId is required".formatted(i));
 			}
 			if (it.quantity() == null) {
 				problems.add("items[%d].quantity is required".formatted(i));
 			}
-			if (it.unitPrice() == null) {
-				problems.add("items[%d].unitPrice is required".formatted(i));
+			if (it.discountType() != null && !DiscountTypes.valid(it.discountType())) {
+				problems.add("items[%d].discountType %s is not a valid DiscountType".formatted(i,
+						GoText.quote(it.discountType())));
 			}
 		}
 		problems.throwIfAny();
 
-		Set<UUID> categories = this.catalog.activeIds(orgId);
 		String number = GoText.trim(in.quoteNumber());
 		if (number.isEmpty()) {
 			problems.add("quoteNumber is required");
@@ -157,24 +171,32 @@ public class QuoteService {
 		if (in.expiryDate().isBefore(today())) {
 			problems.add("expiryDate must not be in the past");
 		}
-		List<Pricing.Line> lines = new ArrayList<>(inputs.size());
+		Map<UUID, Product> products = this.products.byIds(orgId,
+				inputs.stream().map(ItemInput::productId).collect(Collectors.toSet()));
+		boolean productsOk = true;
 		for (int i = 0; i < inputs.size(); i++) {
-			ItemInput it = inputs.get(i);
-			if (GoText.trim(it.title()).isEmpty()) {
-				problems.add("items[%d].title is required".formatted(i));
+			Product p = products.get(inputs.get(i).productId());
+			if (p == null || !p.active()) {
+				problems.add("items[%d].productId is not an active product".formatted(i));
+				productsOk = false;
 			}
-			if (!categories.contains(it.categoryId())) {
-				problems.add("items[%d].categoryId is not an active category".formatted(i));
-			}
-			lines.add(new Pricing.Line(it.quantity(), it.unitPrice(), orElse(it.discountPercent(), BigDecimal.ZERO),
-					orElse(it.taxPercent(), DEFAULT_TAX_PERCENT)));
 		}
+		// Pricing needs every line's product (its default price and cost).
+		List<Pricing.Line> lines = new ArrayList<>(inputs.size());
 		Pricing.Result totals = null;
-		try {
-			totals = Pricing.calculate(lines);
-		}
-		catch (IllegalArgumentException ex) {
-			problems.add(ex.getMessage());
+		if (productsOk) {
+			for (ItemInput it : inputs) {
+				Product p = products.get(it.productId());
+				lines.add(new Pricing.Line(it.quantity(), orElse(it.unitPrice(), p.unitPrice()), discountType(it),
+						orElse(it.discountValue(), BigDecimal.ZERO), orElse(it.taxPercent(), DEFAULT_TAX_PERCENT),
+						p.unitCost()));
+			}
+			try {
+				totals = Pricing.calculate(lines);
+			}
+			catch (IllegalArgumentException ex) {
+				problems.add(ex.getMessage());
+			}
 		}
 		problems.throwIfAny();
 		if (!this.clients.clientExists(orgId, in.clientId())) {
@@ -183,12 +205,18 @@ public class QuoteService {
 		List<QuoteItem> items = new ArrayList<>(inputs.size());
 		for (int i = 0; i < inputs.size(); i++) {
 			ItemInput it = inputs.get(i);
+			Product p = products.get(it.productId());
 			Pricing.Line line = lines.get(i);
-			items.add(new QuoteItem(UUID.randomUUID(), it.title(), new Ref(it.categoryId(), ""), it.description(),
-					line.quantity(), line.unitPrice(), line.discountPercent(), line.taxPercent(),
-					totals.lineTotals().get(i)));
+			Pricing.LineResult priced = totals.lines().get(i);
+			items.add(new QuoteItem(UUID.randomUUID(), new Ref(p.id(), p.name()), p.name(), p.category(),
+					it.description(), line.quantity(), line.unitPrice(), line.discountType(), line.discountValue(),
+					priced.discount(), line.taxPercent(), priced.lineTotal(), p.unitCost()));
 		}
 		return new Validated(in.clientId(), in.dealId(), number, in.expiryDate(), items, totals);
+	}
+
+	private static String discountType(ItemInput it) {
+		return (it.discountType() != null) ? it.discountType() : DiscountTypes.PERCENT;
 	}
 
 	private static BigDecimal orElse(BigDecimal value, BigDecimal fallback) {
@@ -242,6 +270,7 @@ public class QuoteService {
 		if (q.creatorTeamWo() == null) {
 			throw ApiException.conflict("you must be in a team led by a WO to submit");
 		}
+		checkStock(q.id());
 		return transition(a, q, "submit", List.of(Statuses.DRAFT), Statuses.PENDING_APPROVAL, Statuses.EV_SUBMITTED,
 				comment);
 	}
@@ -278,6 +307,7 @@ public class QuoteService {
 		if (isExpired(q)) {
 			throw ApiException.conflict("quote has expired");
 		}
+		checkStock(q.id());
 		return transition(a, q, "send", List.of(Statuses.APPROVED), Statuses.SENT, Statuses.EV_SENT, null);
 	}
 
@@ -294,6 +324,9 @@ public class QuoteService {
 		}
 		catch (StateConflictException ex) {
 			throw raced(a.tenantId(), q.id(), "accept");
+		}
+		catch (StockShortageException ex) {
+			throw shortage(ex);
 		}
 		return get(a, id);
 	}
@@ -330,6 +363,9 @@ public class QuoteService {
 		catch (StateConflictException ex) {
 			throw raced(v.quote().organizationId(), v.quote().id(), "accept");
 		}
+		catch (StockShortageException ex) {
+			throw shortage(ex);
+		}
 		return customerView(v.quote());
 	}
 
@@ -346,6 +382,36 @@ public class QuoteService {
 			throw raced(v.quote().organizationId(), v.quote().id(), "reject");
 		}
 		return customerView(v.quote());
+	}
+
+	/** A visible quote to export; never marks it viewed. */
+	public Document document(Actor a, UUID id) {
+		if (Roles.ADMIN.equals(a.role())) {
+			throw ApiException.roleForbidden();
+		}
+		Quote q = visible(a, id);
+		if (!EXPORTABLE.contains(q.status())) {
+			throw stateConflict("export", q.status());
+		}
+		return new Document(q, this.quotes.organizationName(q.organizationId()));
+	}
+
+	/** A quote to export by share link; same reachability as {@link #getPublic} but never marks it viewed. */
+	public Document publicDocument(UUID accessToken) {
+		PublicView v = publicQuote(accessToken);
+		return new Document(v.quote(), v.vendorName());
+	}
+
+	/** 409 when a tracked product has less stock than the quote's total quantity of it. */
+	private void checkStock(UUID quoteId) {
+		this.quotes.stockShortage(quoteId).ifPresent((ex) -> {
+			throw shortage(ex);
+		});
+	}
+
+	private static ApiException shortage(StockShortageException ex) {
+		return ApiException.conflict("not enough stock for %s (available %s)".formatted(ex.productName(),
+				ex.available().setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()));
 	}
 
 	/** Loads a quote and hides it (404) unless the actor's role lets them see it. */
