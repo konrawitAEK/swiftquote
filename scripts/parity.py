@@ -32,6 +32,7 @@ TEAM_ALPHA = "00000000-0000-4000-8000-000000000020"
 WO2 = "00000000-0000-4000-8000-000000000014"
 SOFTWARE, SERVICES, HARDWARE = (f"00000000-0000-4000-8000-0000000000{n}" for n in (30, 31, 32))
 # Seeded products (V9); none of these track stock, so concurrent runs can't affect each other's stock.
+# Quote prices stay above cost so parity runs don't drag the dev dashboard's profit negative.
 HOSTING, WEBSITE, CONSULTING = (f"00000000-0000-4000-8000-0000000000{n}" for n in (41, 42, 43))
 SIGNATURE = {"signerName": "Jane Buyer", "signatureDataUrl": "data:image/png;base64,AAAA"}
 
@@ -110,9 +111,9 @@ def scenario(base, prefix):
             "expiryDate": expiry,
             "notes": "Parity run",
             "items": [
-                {"productId": CONSULTING, "quantity": 2, "unitPrice": 100, "discountType": "percent", "discountValue": 10},
-                {"productId": HOSTING, "quantity": 1, "unitPrice": 1.5},
-                {"productId": WEBSITE, "description": "Rounding probe", "quantity": 3, "unitPrice": 33.33,
+                {"productId": CONSULTING, "quantity": 2, "unitPrice": 1500, "discountType": "percent", "discountValue": 10},
+                {"productId": HOSTING, "quantity": 1, "unitPrice": 150.5},
+                {"productId": HOSTING, "description": "Rounding probe", "quantity": 3, "unitPrice": 333.33,
                  "discountType": "amount", "discountValue": 15.555, "taxPercent": 7},
             ],
         }
@@ -194,7 +195,7 @@ def scenario(base, prefix):
     yield ("bad discount type", *request(base, "POST", "/quotes", rm, quote("Q-2", items=[
         {"productId": CONSULTING, "quantity": 1, "discountType": "coupon", "discountValue": 5}])))
     yield ("amount discount above the line", *request(base, "POST", "/quotes", rm, quote("Q-2", items=[
-        {"productId": CONSULTING, "quantity": 2, "unitPrice": 100, "discountType": "amount", "discountValue": 200.01},
+        {"productId": CONSULTING, "quantity": 2, "unitPrice": 1500, "discountType": "amount", "discountValue": 3000.01},
         {"productId": HOSTING, "quantity": 1, "discountType": "amount", "discountValue": -1}])))
     yield ("retired product", *request(base, "POST", "/quotes", rm, quote("Q-2", items=[
         {"productId": oldprod["id"], "quantity": 1}])))
@@ -232,8 +233,8 @@ def scenario(base, prefix):
     yield ("return without comment", *request(base, "POST", f"/quotes/{qid}/return", wo, {}))
     yield ("return with comment", *request(base, "POST", f"/quotes/{qid}/return", wo, {"comment": "Discount too high"}))
     yield ("rm edits draft", *request(base, "PUT", f"/quotes/{qid}", rm, quote("Q-1", items=[
-        {"productId": CONSULTING, "quantity": 2, "unitPrice": 100, "discountValue": 5},
-        {"productId": WEBSITE, "quantity": 3, "unitPrice": 33.33, "discountType": "percent", "discountValue": 15, "taxPercent": 7},
+        {"productId": CONSULTING, "quantity": 2, "unitPrice": 1500, "discountValue": 5},
+        {"productId": HOSTING, "quantity": 3, "unitPrice": 333.33, "discountType": "percent", "discountValue": 15, "taxPercent": 7},
     ])))
     yield ("other rm cannot edit", *request(base, "PUT", f"/quotes/{qid}", rm3, quote("Q-1")))
     yield ("submit again after edit", *request(base, "POST", f"/quotes/{qid}/submit", rm, {}))
