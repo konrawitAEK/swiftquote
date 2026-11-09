@@ -4,7 +4,7 @@ BACKENDS := go spring node
 FRONTENDS := react next angular
 RUN_MATRIX := $(foreach b,$(BACKENDS),$(foreach f,$(FRONTENDS),run-$(b)-$(f)))
 
-.PHONY: help gen-types test-db test-go test-spring test-node test-react test-next test-angular run-go run-spring run-node smoke parity bench reset-db stop $(RUN_MATRIX)
+.PHONY: help deploy-dev deploy-prod undeploy-dev undeploy-prod gen-types test-db test-go test-spring test-node test-react test-next test-angular run-go run-spring run-node smoke parity bench reset-db stop $(RUN_MATRIX)
 
 help:
 	@echo "SwiftQuote Polyglot Commands:"
@@ -23,6 +23,8 @@ help:
 	@echo "  make run-<be>-<fe>       - be: go|spring|node, fe: react (:3000) | next (:3001) | angular (:3002)"
 	@echo "                             e.g. make run-go-react, make run-spring-next, make run-node-angular"
 	@echo "  make stop                - Shut down all running containers"
+	@echo "  make deploy-<dev|prod>   - Build and start the stack configured in deploy/<env>.env"
+	@echo "  make undeploy-<dev|prod> - Stop that stack (its database volume is kept)"
 
 OPENAPI_TS := npx --yes openapi-typescript@7.13.0
 
@@ -108,3 +110,12 @@ $(RUN_MATRIX): run-%:
 
 stop:
 	docker compose --profile all --profile go --profile spring --profile node --profile react --profile next --profile angular down
+
+# Deployed stacks: deploy/<env>.env sets the project name, compose files, profiles, ports, URLs and secrets,
+# so dev and prod never share containers or a database. Copy deploy/<env>.env.example to start.
+deploy-dev deploy-prod: deploy-%:
+	scripts/check-deploy-env.sh deploy/$*.env
+	docker compose --env-file deploy/$*.env up -d --build --wait
+
+undeploy-dev undeploy-prod: undeploy-%:
+	docker compose --env-file deploy/$*.env down

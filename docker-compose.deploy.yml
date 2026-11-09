@@ -1,0 +1,54 @@
+# Deployed stacks (dev and prod): layered on docker-compose.yml through COMPOSE_FILE in deploy/<env>.env.
+# Each secret and URL here must come from that env file; a missing one stops `up` rather than
+# falling back to the localhost defaults that local `make run-*` uses.
+x-backend: &backend
+  restart: unless-stopped
+
+services:
+  postgres:
+    restart: unless-stopped
+    # Reachable only by the backends on the compose network, never from the host.
+    ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/<env>.env}
+
+  backend-go:
+    <<: *backend
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/<env>.env}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/<env>.env}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS in deploy/<env>.env}
+
+  backend-spring:
+    <<: *backend
+    environment:
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/<env>.env}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/<env>.env}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS in deploy/<env>.env}
+
+  backend-node:
+    <<: *backend
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/<env>.env}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/<env>.env}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS in deploy/<env>.env}
+
+  frontend-react:
+    restart: unless-stopped
+    build:
+      args:
+        VITE_API_URL: ${PUBLIC_API_URL:?set PUBLIC_API_URL in deploy/<env>.env}
+
+  frontend-next:
+    restart: unless-stopped
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:?set PUBLIC_API_URL in deploy/<env>.env}
+    environment:
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/<env>.env}
+
+  frontend-angular:
+    restart: unless-stopped
+    build:
+      args:
+        API_URL: ${PUBLIC_API_URL:?set PUBLIC_API_URL in deploy/<env>.env}
