@@ -2,13 +2,13 @@ services:
   # Shared Database
   postgres:
     image: postgres:16-alpine
-    container_name: swiftquote-db
+    container_name: ${COMPOSE_PROJECT_NAME:-swiftquote}-db
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
       POSTGRES_DB: swiftquote
     ports:
-      - "5432:5432"
+      - "${DB_HOST_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Applied only when the pgdata volume is first created; `make reset-db` to re-run.
@@ -26,17 +26,18 @@ services:
     build:
       context: ./backend/go-service
       dockerfile: Dockerfile
-    container_name: swiftquote-backend-go
+    container_name: ${COMPOSE_PROJECT_NAME:-swiftquote}-backend-go
     profiles: ["go", "all"]
     ports:
-      - "8080:8080"
+      - "${API_PORT:-8080}:8080"
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: postgres
-      DB_PASSWORD: password
+      DB_PASSWORD: ${DB_PASSWORD:-password}
       DB_NAME: swiftquote
-      JWT_SECRET: swiftquote-dev-only-jwt-secret-change-me
+      JWT_SECRET: ${JWT_SECRET:-swiftquote-dev-only-jwt-secret-change-me}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:3002}
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,16 +50,17 @@ services:
     build:
       context: ./backend/spring-boot-service
       dockerfile: Dockerfile
-    container_name: swiftquote-backend-spring
+    container_name: ${COMPOSE_PROJECT_NAME:-swiftquote}-backend-spring
     profiles: ["spring"]
     ports:
       # SPRING_PORT=8081 lets Spring run beside Go for `make parity`.
-      - "${SPRING_PORT:-8080}:8080"
+      - "${SPRING_PORT:-${API_PORT:-8080}}:8080"
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/swiftquote
       SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: password
-      JWT_SECRET: swiftquote-dev-only-jwt-secret-change-me
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-password}
+      JWT_SECRET: ${JWT_SECRET:-swiftquote-dev-only-jwt-secret-change-me}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:3002}
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,18 +73,19 @@ services:
     build:
       context: ./backend/node-service
       dockerfile: Dockerfile
-    container_name: swiftquote-backend-node
+    container_name: ${COMPOSE_PROJECT_NAME:-swiftquote}-backend-node
     profiles: ["node"]
     ports:
       # NODE_PORT=8082 lets Node run beside Go for `make parity`.
-      - "${NODE_PORT:-8080}:8080"
+      - "${NODE_PORT:-${API_PORT:-8080}}:8080"
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: postgres
-      DB_PASSWORD: password
+      DB_PASSWORD: ${DB_PASSWORD:-password}
       DB_NAME: swiftquote
-      JWT_SECRET: swiftquote-dev-only-jwt-secret-change-me
+      JWT_SECRET: ${JWT_SECRET:-swiftquote-dev-only-jwt-secret-change-me}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:3002}
     depends_on:
       postgres:
         condition: service_healthy
@@ -98,11 +101,11 @@ services:
       dockerfile: Dockerfile
       args:
         # Build-time: Vite inlines it, and the browser (on the host) calls the API.
-        VITE_API_URL: http://localhost:8080/api/v1
-    container_name: swiftquote-fe-react
+        VITE_API_URL: ${PUBLIC_API_URL:-http://localhost:8080/api/v1}
+    container_name: ${COMPOSE_PROJECT_NAME:-swiftquote}-fe-react
     profiles: ["react", "all"]
     ports:
-      - "3000:3000"
+      - "${REACT_PORT:-3000}:3000"
     networks:
       - internal-net
 
@@ -112,16 +115,16 @@ services:
       dockerfile: Dockerfile
       args:
         # Build-time: inlined into browser code, which calls the API from the host.
-        NEXT_PUBLIC_API_URL: http://localhost:8080/api/v1
-    container_name: swiftquote-fe-next
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080/api/v1}
+    container_name: ${COMPOSE_PROJECT_NAME:-swiftquote}-fe-next
     profiles: ["next", "all"]
     ports:
-      - "3001:3000"
+      - "${NEXT_PORT:-3001}:3000"
     environment:
       # Runtime: Server Components call the API inside the compose network.
       API_INTERNAL_URL: http://api:8080/api/v1
       # Server-only: verifies the session JWT so the role used for routing can't be forged.
-      JWT_SECRET: swiftquote-dev-only-jwt-secret-change-me
+      JWT_SECRET: ${JWT_SECRET:-swiftquote-dev-only-jwt-secret-change-me}
     networks:
       - internal-net
 
@@ -131,11 +134,11 @@ services:
       dockerfile: Dockerfile
       args:
         # Build-time: the browser (on the host) calls the API.
-        API_URL: http://localhost:8080/api/v1
-    container_name: swiftquote-fe-angular
+        API_URL: ${PUBLIC_API_URL:-http://localhost:8080/api/v1}
+    container_name: ${COMPOSE_PROJECT_NAME:-swiftquote}-fe-angular
     profiles: ["angular", "all"]
     ports:
-      - "3002:80"
+      - "${ANGULAR_PORT:-3002}:80"
     networks:
       - internal-net
 

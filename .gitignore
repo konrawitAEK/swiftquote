@@ -10,3 +10,6 @@ bin/
 .vscode/
 .DS_Store
 frontend/shared-contract-client/
+
+# Deploy settings and secrets; only the .example templates are committed.
+deploy/*.env
